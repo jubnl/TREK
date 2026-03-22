@@ -1,4 +1,4 @@
-const { DatabaseSync } = require('node:sqlite');
+const Database = require('better-sqlite3');
 const path = require('path');
 const fs = require('fs');
 const bcrypt = require('bcryptjs');
@@ -19,7 +19,7 @@ function initDb() {
     _db = null;
   }
 
-  _db = new DatabaseSync(dbPath);
+  _db = new Database(dbPath);
   _db.exec('PRAGMA journal_mode = WAL');
   _db.exec('PRAGMA busy_timeout = 5000');
   _db.exec('PRAGMA foreign_keys = ON');
@@ -309,53 +309,79 @@ function initDb() {
     CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
   `);
 
-  // Migrations
+  // Versioned migrations — each runs exactly once
+  _db.exec('CREATE TABLE IF NOT EXISTS schema_version (version INTEGER NOT NULL)');
+  const versionRow = _db.prepare('SELECT version FROM schema_version').get();
+  let currentVersion = versionRow?.version ?? 0;
+
+  // Existing DBs already have all pre-v2.5.2 columns — detect and skip
+  if (currentVersion === 0) {
+    const hasLastLogin = _db.prepare(
+      "SELECT 1 FROM pragma_table_info('users') WHERE name = 'last_login'"
+    ).get();
+    if (hasLastLogin) {
+      // DB was already fully migrated by the old try/catch pattern
+      currentVersion = 19;
+      _db.prepare('INSERT INTO schema_version (version) VALUES (?)').run(currentVersion);
+      console.log('[DB] Existing database detected, setting schema version to', currentVersion);
+    } else {
+      _db.prepare('INSERT INTO schema_version (version) VALUES (?)').run(0);
+    }
+  }
+
   const migrations = [
-    `ALTER TABLE users ADD COLUMN unsplash_api_key TEXT`,
-    `ALTER TABLE users ADD COLUMN openweather_api_key TEXT`,
-    `ALTER TABLE places ADD COLUMN duration_minutes INTEGER DEFAULT 60`,
-    `ALTER TABLE places ADD COLUMN notes TEXT`,
-    `ALTER TABLE places ADD COLUMN image_url TEXT`,
-    `ALTER TABLE places ADD COLUMN transport_mode TEXT DEFAULT 'walking'`,
-    `ALTER TABLE days ADD COLUMN title TEXT`,
-    `ALTER TABLE reservations ADD COLUMN status TEXT DEFAULT 'pending'`,
-    `ALTER TABLE trip_files ADD COLUMN reservation_id INTEGER REFERENCES reservations(id) ON DELETE SET NULL`,
-    `ALTER TABLE reservations ADD COLUMN type TEXT DEFAULT 'other'`,
-    `ALTER TABLE trips ADD COLUMN cover_image TEXT`,
-    `ALTER TABLE day_notes ADD COLUMN icon TEXT DEFAULT '📝'`,
-    `ALTER TABLE trips ADD COLUMN is_archived INTEGER DEFAULT 0`,
-    `ALTER TABLE categories ADD COLUMN user_id INTEGER REFERENCES users(id) ON DELETE SET NULL`,
-    `ALTER TABLE users ADD COLUMN avatar TEXT`,
-    `ALTER TABLE users ADD COLUMN oidc_sub TEXT`,
-    `ALTER TABLE users ADD COLUMN oidc_issuer TEXT`,
-    `ALTER TABLE users ADD COLUMN last_login DATETIME`,
+    // 1–18: ALTER TABLE additions
+    () => _db.exec('ALTER TABLE users ADD COLUMN unsplash_api_key TEXT'),
+    () => _db.exec('ALTER TABLE users ADD COLUMN openweather_api_key TEXT'),
+    () => _db.exec('ALTER TABLE places ADD COLUMN duration_minutes INTEGER DEFAULT 60'),
+    () => _db.exec('ALTER TABLE places ADD COLUMN notes TEXT'),
+    () => _db.exec('ALTER TABLE places ADD COLUMN image_url TEXT'),
+    () => _db.exec("ALTER TABLE places ADD COLUMN transport_mode TEXT DEFAULT 'walking'"),
+    () => _db.exec('ALTER TABLE days ADD COLUMN title TEXT'),
+    () => _db.exec("ALTER TABLE reservations ADD COLUMN status TEXT DEFAULT 'pending'"),
+    () => _db.exec('ALTER TABLE trip_files ADD COLUMN reservation_id INTEGER REFERENCES reservations(id) ON DELETE SET NULL'),
+    () => _db.exec("ALTER TABLE reservations ADD COLUMN type TEXT DEFAULT 'other'"),
+    () => _db.exec('ALTER TABLE trips ADD COLUMN cover_image TEXT'),
+    () => _db.exec("ALTER TABLE day_notes ADD COLUMN icon TEXT DEFAULT '📝'"),
+    () => _db.exec('ALTER TABLE trips ADD COLUMN is_archived INTEGER DEFAULT 0'),
+    () => _db.exec('ALTER TABLE categories ADD COLUMN user_id INTEGER REFERENCES users(id) ON DELETE SET NULL'),
+    () => _db.exec('ALTER TABLE users ADD COLUMN avatar TEXT'),
+    () => _db.exec('ALTER TABLE users ADD COLUMN oidc_sub TEXT'),
+    () => _db.exec('ALTER TABLE users ADD COLUMN oidc_issuer TEXT'),
+    () => _db.exec('ALTER TABLE users ADD COLUMN last_login DATETIME'),
+    // 19: budget_items table rebuild (NOT NULL → nullable persons)
+    () => {
+      const schema = _db.prepare("SELECT sql FROM sqlite_master WHERE name = 'budget_items'").get();
+      if (schema?.sql?.includes('NOT NULL DEFAULT 1')) {
+        _db.exec(`
+          CREATE TABLE budget_items_new (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            trip_id INTEGER NOT NULL REFERENCES trips(id) ON DELETE CASCADE,
+            category TEXT NOT NULL DEFAULT 'Sonstiges',
+            name TEXT NOT NULL,
+            total_price REAL NOT NULL DEFAULT 0,
+            persons INTEGER DEFAULT NULL,
+            days INTEGER DEFAULT NULL,
+            note TEXT,
+            sort_order INTEGER DEFAULT 0,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+          );
+          INSERT INTO budget_items_new SELECT * FROM budget_items;
+          DROP TABLE budget_items;
+          ALTER TABLE budget_items_new RENAME TO budget_items;
+        `);
+      }
+    },
+    // Future migrations go here (append only, never reorder)
   ];
 
-  // Recreate budget_items to allow NULL persons (SQLite can't ALTER NOT NULL)
-  try {
-    const hasNotNull = _db.prepare("SELECT sql FROM sqlite_master WHERE name = 'budget_items'").get()
-    if (hasNotNull?.sql?.includes('NOT NULL DEFAULT 1')) {
-      _db.exec(`
-        CREATE TABLE budget_items_new (
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
-          trip_id INTEGER NOT NULL REFERENCES trips(id) ON DELETE CASCADE,
-          category TEXT NOT NULL DEFAULT 'Sonstiges',
-          name TEXT NOT NULL,
-          total_price REAL NOT NULL DEFAULT 0,
-          persons INTEGER DEFAULT NULL,
-          days INTEGER DEFAULT NULL,
-          note TEXT,
-          sort_order INTEGER DEFAULT 0,
-          created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-        );
-        INSERT INTO budget_items_new SELECT * FROM budget_items;
-        DROP TABLE budget_items;
-        ALTER TABLE budget_items_new RENAME TO budget_items;
-      `)
+  if (currentVersion < migrations.length) {
+    for (let i = currentVersion; i < migrations.length; i++) {
+      console.log(`[DB] Running migration ${i + 1}/${migrations.length}`);
+      migrations[i]();
     }
-  } catch (e) { /* table doesn't exist yet or already migrated */ }
-  for (const sql of migrations) {
-    try { _db.exec(sql); } catch (e) { /* column already exists */ }
+    _db.prepare('UPDATE schema_version SET version = ?').run(migrations.length);
+    console.log(`[DB] Migrations complete — schema version ${migrations.length}`);
   }
 
   // First registered user becomes admin — no default admin seed needed

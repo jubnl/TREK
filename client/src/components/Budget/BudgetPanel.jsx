@@ -190,7 +190,7 @@ export default function BudgetPanel({ tripId }) {
   const handleAddCategory = () => {
     if (!newCategoryName.trim()) return
     addBudgetItem(tripId, { name: t('budget.defaultEntry'), category: newCategoryName.trim(), total_price: 0 })
-    setNewCategoryName(''); setShowAddCategory(false)
+    setNewCategoryName('')
   }
 
   const th = { padding: '6px 8px', textAlign: 'center', fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', borderBottom: '2px solid var(--border-primary)', whiteSpace: 'nowrap', background: 'var(--bg-secondary)' }

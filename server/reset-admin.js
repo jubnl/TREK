@@ -1,9 +1,9 @@
 const path = require('path');
-const { DatabaseSync } = require('node:sqlite');
+const Database = require('better-sqlite3');
 const bcrypt = require('bcryptjs');
 
 const dbPath = path.join(__dirname, 'data/travel.db');
-const db = new DatabaseSync(dbPath);
+const db = new Database(dbPath);
 
 const hash = bcrypt.hashSync('admin123', 10);
 const existing = db.prepare('SELECT id FROM users WHERE email = ?').get('admin@admin.com');

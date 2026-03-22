@@ -11,9 +11,11 @@ FROM node:22-alpine
 
 WORKDIR /app
 
-# Server-Dependencies installieren
+# Server-Dependencies installieren (better-sqlite3 braucht Build-Tools)
 COPY server/package*.json ./
-RUN npm ci --production
+RUN apk add --no-cache python3 make g++ && \
+    npm ci --production && \
+    apk del python3 make g++
 
 # Server-Code kopieren
 COPY server/ ./
@@ -33,4 +35,4 @@ ENV PORT=3000
 
 EXPOSE 3000
 
-CMD ["node", "--experimental-sqlite", "src/index.js"]
+CMD ["node", "src/index.js"]

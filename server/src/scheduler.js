@@ -120,4 +120,9 @@ function startDemoReset() {
   console.log('[Demo] Hourly reset scheduled (at :00 every hour)');
 }
 
-module.exports = { start, startDemoReset, loadSettings, saveSettings, VALID_INTERVALS };
+function stop() {
+  if (currentTask) { currentTask.stop(); currentTask = null; }
+  if (demoTask) { demoTask.stop(); demoTask = null; }
+}
+
+module.exports = { start, stop, startDemoReset, loadSettings, saveSettings, VALID_INTERVALS };

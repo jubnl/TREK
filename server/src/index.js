@@ -135,4 +135,25 @@ const server = app.listen(PORT, () => {
   setupWebSocket(server);
 });
 
+// Graceful shutdown
+function shutdown(signal) {
+  console.log(`\n${signal} received — shutting down gracefully...`);
+  scheduler.stop();
+  server.close(() => {
+    console.log('HTTP server closed');
+    const { closeDb } = require('./db/database');
+    closeDb();
+    console.log('Shutdown complete');
+    process.exit(0);
+  });
+  // Force exit after 10s if connections don't close
+  setTimeout(() => {
+    console.error('Forced shutdown after timeout');
+    process.exit(1);
+  }, 10000);
+}
+
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT', () => shutdown('SIGINT'));
+
 module.exports = app;
