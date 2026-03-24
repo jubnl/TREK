@@ -9,7 +9,7 @@ export default function PlaceAvatar({ place, size = 32, category }) {
 
   useEffect(() => {
     if (place.image_url) { setPhotoSrc(place.image_url); return }
-    if (!place.google_place_id) return
+    if (!place.google_place_id) { setPhotoSrc(null); return }
 
     if (googlePhotoCache.has(place.google_place_id)) {
       setPhotoSrc(googlePhotoCache.get(place.google_place_id))
