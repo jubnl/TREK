@@ -9,34 +9,53 @@ interface Category {
 }
 
 interface PlaceAvatarProps {
-  place: Pick<Place, 'id' | 'name' | 'image_url' | 'google_place_id'>
+  place: Pick<Place, 'id' | 'name' | 'image_url' | 'google_place_id' | 'osm_id' | 'lat' | 'lng'>
   size?: number
   category?: Category | null
 }
 
-const googlePhotoCache = new Map<string, string>()
+const photoCache = new Map<string, string | null>()
+const photoInFlight = new Set<string>()
 
 export default function PlaceAvatar({ place, size = 32, category }: PlaceAvatarProps) {
   const [photoSrc, setPhotoSrc] = useState<string | null>(place.image_url || null)
 
   useEffect(() => {
     if (place.image_url) { setPhotoSrc(place.image_url); return }
-    if (!place.google_place_id) { setPhotoSrc(null); return }
+    const photoId = place.google_place_id || place.osm_id
+    if (!photoId && !(place.lat && place.lng)) { setPhotoSrc(null); return }
 
-    if (googlePhotoCache.has(place.google_place_id)) {
-      setPhotoSrc(googlePhotoCache.get(place.google_place_id)!)
+    const cacheKey = photoId || `${place.lat},${place.lng}`
+    if (photoCache.has(cacheKey)) {
+      const cached = photoCache.get(cacheKey)
+      if (cached) setPhotoSrc(cached)
       return
     }
 
-    mapsApi.placePhoto(place.google_place_id)
+    if (photoInFlight.has(cacheKey)) {
+      // Another instance is already fetching, wait for it
+      const check = setInterval(() => {
+        if (photoCache.has(cacheKey)) {
+          clearInterval(check)
+          const cached = photoCache.get(cacheKey)
+          if (cached) setPhotoSrc(cached)
+        }
+      }, 200)
+      return () => clearInterval(check)
+    }
+    photoInFlight.add(cacheKey)
+    mapsApi.placePhoto(photoId || `coords:${place.lat}:${place.lng}`, place.lat, place.lng, place.name)
       .then((data: { photoUrl?: string }) => {
         if (data.photoUrl) {
-          googlePhotoCache.set(place.google_place_id!, data.photoUrl)
+          photoCache.set(cacheKey, data.photoUrl)
           setPhotoSrc(data.photoUrl)
+        } else {
+          photoCache.set(cacheKey, null)
         }
+        photoInFlight.delete(cacheKey)
       })
-      .catch(() => {})
-  }, [place.id, place.image_url, place.google_place_id])
+      .catch(() => { photoCache.set(cacheKey, null); photoInFlight.delete(cacheKey) })
+  }, [place.id, place.image_url, place.google_place_id, place.osm_id])
 
   const bgColor = category?.color || '#6366f1'
   const IconComp = getCategoryIcon(category?.icon)

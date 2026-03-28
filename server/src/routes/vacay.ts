@@ -69,6 +69,7 @@ function getOwnPlan(userId: number) {
     const yr = new Date().getFullYear();
     db.prepare('INSERT OR IGNORE INTO vacay_years (plan_id, year) VALUES (?, ?)').run(plan.id, yr);
     db.prepare('INSERT OR IGNORE INTO vacay_user_years (user_id, plan_id, year, vacation_days, carried_over) VALUES (?, ?, ?, 30, 0)').run(userId, plan.id, yr);
+    db.prepare('INSERT OR IGNORE INTO vacay_user_colors (user_id, plan_id, color) VALUES (?, ?, ?)').run(userId, plan.id, '#6366f1');
   }
   return plan;
 }
@@ -296,11 +297,15 @@ router.post('/invite/accept', (req: Request, res: Response) => {
   const COLORS = ['#6366f1','#ec4899','#14b8a6','#8b5cf6','#ef4444','#3b82f6','#22c55e','#06b6d4','#f43f5e','#a855f7','#10b981','#0ea5e9','#64748b','#be185d','#0d9488'];
   const existingColors = (db.prepare('SELECT color FROM vacay_user_colors WHERE plan_id = ? AND user_id != ?').all(plan_id, authReq.user.id) as { color: string }[]).map(r => r.color);
   const myColor = db.prepare('SELECT color FROM vacay_user_colors WHERE user_id = ? AND plan_id = ?').get(authReq.user.id, plan_id) as { color: string } | undefined;
-  if (myColor && existingColors.includes(myColor.color)) {
+  const effectiveColor = myColor?.color || '#6366f1';
+  if (existingColors.includes(effectiveColor)) {
     const available = COLORS.find(c => !existingColors.includes(c));
     if (available) {
-      db.prepare('UPDATE vacay_user_colors SET color = ? WHERE user_id = ? AND plan_id = ?').run(available, authReq.user.id, plan_id);
+      db.prepare(`INSERT INTO vacay_user_colors (user_id, plan_id, color) VALUES (?, ?, ?)
+        ON CONFLICT(user_id, plan_id) DO UPDATE SET color = excluded.color`).run(authReq.user.id, plan_id, available);
     }
+  } else if (!myColor) {
+    db.prepare('INSERT OR IGNORE INTO vacay_user_colors (user_id, plan_id, color) VALUES (?, ?, ?)').run(authReq.user.id, plan_id, effectiveColor);
   }
 
   const targetYears = db.prepare('SELECT year FROM vacay_years WHERE plan_id = ?').all(plan_id) as { year: number }[];

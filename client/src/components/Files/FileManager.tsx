@@ -1,15 +1,15 @@
 import ReactDOM from 'react-dom'
-import { useState, useCallback } from 'react'
-import DOM from 'react-dom'
+import { useState, useCallback, useRef } from 'react'
 import { useDropzone } from 'react-dropzone'
-import { Upload, Trash2, ExternalLink, X, FileText, FileImage, File, MapPin, Ticket, StickyNote } from 'lucide-react'
+import { Upload, Trash2, ExternalLink, X, FileText, FileImage, File, MapPin, Ticket, StickyNote, Star, RotateCcw, Pencil, Check } from 'lucide-react'
 import { useToast } from '../shared/Toast'
 import { useTranslation } from '../../i18n'
-import type { Place, Reservation, TripFile } from '../../types'
+import { filesApi } from '../../api/client'
+import type { Place, Reservation, TripFile, Day, AssignmentsMap } from '../../types'
 
 function isImage(mimeType) {
   if (!mimeType) return false
-  return mimeType.startsWith('image/') // covers jpg, png, gif, webp, etc.
+  return mimeType.startsWith('image/')
 }
 
 function getFileIcon(mimeType) {
@@ -68,7 +68,7 @@ function ImageLightbox({ file, onClose }: ImageLightboxProps) {
   )
 }
 
-// Source badge — unified style for both place and reservation
+// Source badge
 interface SourceBadgeProps {
   icon: React.ComponentType<{ size?: number; style?: React.CSSProperties }>
   label: string
@@ -89,40 +89,156 @@ function SourceBadge({ icon: Icon, label }: SourceBadgeProps) {
   )
 }
 
+function AvatarChip({ name, avatarUrl, size = 20 }: { name: string; avatarUrl?: string | null; size?: number }) {
+  const [hover, setHover] = useState(false)
+  const [pos, setPos] = useState({ top: 0, left: 0 })
+  const ref = useRef<HTMLDivElement>(null)
+
+  const onEnter = () => {
+    if (ref.current) {
+      const rect = ref.current.getBoundingClientRect()
+      setPos({ top: rect.top - 6, left: rect.left + rect.width / 2 })
+    }
+    setHover(true)
+  }
+
+  return (
+    <>
+      <div ref={ref} onMouseEnter={onEnter} onMouseLeave={() => setHover(false)}
+        style={{
+          width: size, height: size, borderRadius: '50%', border: '1.5px solid var(--border-primary)',
+          background: 'var(--bg-tertiary)', display: 'flex', alignItems: 'center', justifyContent: 'center',
+          fontSize: size * 0.4, fontWeight: 700, color: 'var(--text-muted)', overflow: 'hidden', flexShrink: 0,
+          cursor: 'default',
+        }}>
+        {avatarUrl
+          ? <img src={avatarUrl} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+          : name?.[0]?.toUpperCase()
+        }
+      </div>
+      {hover && ReactDOM.createPortal(
+        <div style={{
+          position: 'fixed', top: pos.top, left: pos.left, transform: 'translate(-50%, -100%)',
+          background: 'var(--bg-elevated)', color: 'var(--text-primary)',
+          fontSize: 11, fontWeight: 500, padding: '3px 8px', borderRadius: 6,
+          boxShadow: '0 2px 8px rgba(0,0,0,0.15)', whiteSpace: 'nowrap', zIndex: 9999,
+          pointerEvents: 'none',
+        }}>
+          {name}
+        </div>,
+        document.body
+      )}
+    </>
+  )
+}
+
 interface FileManagerProps {
   files?: TripFile[]
-  onUpload: (fd: FormData) => Promise<void>
+  onUpload: (fd: FormData) => Promise<any>
   onDelete: (fileId: number) => Promise<void>
   onUpdate: (fileId: number, data: Partial<TripFile>) => Promise<void>
   places: Place[]
+  days?: Day[]
+  assignments?: AssignmentsMap
   reservations?: Reservation[]
   tripId: number
   allowedFileTypes: Record<string, string[]>
 }
 
-export default function FileManager({ files = [], onUpload, onDelete, onUpdate, places, reservations = [], tripId, allowedFileTypes }: FileManagerProps) {
+export default function FileManager({ files = [], onUpload, onDelete, onUpdate, places, days = [], assignments = {}, reservations = [], tripId, allowedFileTypes }: FileManagerProps) {
   const [uploading, setUploading] = useState(false)
   const [filterType, setFilterType] = useState('all')
   const [lightboxFile, setLightboxFile] = useState(null)
+  const [showTrash, setShowTrash] = useState(false)
+  const [trashFiles, setTrashFiles] = useState<TripFile[]>([])
+  const [loadingTrash, setLoadingTrash] = useState(false)
   const toast = useToast()
   const { t, locale } = useTranslation()
+
+  const loadTrash = useCallback(async () => {
+    setLoadingTrash(true)
+    try {
+      const data = await filesApi.list(tripId, true)
+      setTrashFiles(data.files || [])
+    } catch { /* */ }
+    setLoadingTrash(false)
+  }, [tripId])
+
+  const toggleTrash = useCallback(() => {
+    if (!showTrash) loadTrash()
+    setShowTrash(v => !v)
+  }, [showTrash, loadTrash])
+
+  const refreshFiles = useCallback(async () => {
+    if (onUpdate) onUpdate(0, {} as any)
+  }, [onUpdate])
+
+  const handleStar = async (fileId: number) => {
+    try {
+      await filesApi.toggleStar(tripId, fileId)
+      refreshFiles()
+    } catch { /* */ }
+  }
+
+  const handleRestore = async (fileId: number) => {
+    try {
+      await filesApi.restore(tripId, fileId)
+      setTrashFiles(prev => prev.filter(f => f.id !== fileId))
+      refreshFiles()
+      toast.success(t('files.toast.restored'))
+    } catch {
+      toast.error(t('files.toast.restoreError'))
+    }
+  }
+
+  const handlePermanentDelete = async (fileId: number) => {
+    if (!confirm(t('files.confirm.permanentDelete'))) return
+    try {
+      await filesApi.permanentDelete(tripId, fileId)
+      setTrashFiles(prev => prev.filter(f => f.id !== fileId))
+      toast.success(t('files.toast.deleted'))
+    } catch {
+      toast.error(t('files.toast.deleteError'))
+    }
+  }
+
+  const handleEmptyTrash = async () => {
+    if (!confirm(t('files.confirm.emptyTrash'))) return
+    try {
+      await filesApi.emptyTrash(tripId)
+      setTrashFiles([])
+      toast.success(t('files.toast.trashEmptied') || 'Trash emptied')
+    } catch {
+      toast.error(t('files.toast.deleteError'))
+    }
+  }
+
+  const [lastUploadedIds, setLastUploadedIds] = useState<number[]>([])
 
   const onDrop = useCallback(async (acceptedFiles) => {
     if (acceptedFiles.length === 0) return
     setUploading(true)
+    const uploadedIds: number[] = []
     try {
       for (const file of acceptedFiles) {
         const formData = new FormData()
         formData.append('file', file)
-        await onUpload(formData)
+        const result = await onUpload(formData)
+        const fileObj = result?.file || result
+        if (fileObj?.id) uploadedIds.push(fileObj.id)
       }
       toast.success(t('files.uploaded', { count: acceptedFiles.length }))
+      // Open assign modal for the last uploaded file
+      const lastId = uploadedIds[uploadedIds.length - 1]
+      if (lastId && (places.length > 0 || reservations.length > 0)) {
+        setAssignFileId(lastId)
+      }
     } catch {
       toast.error(t('files.uploadError'))
     } finally {
       setUploading(false)
     }
-  }, [onUpload, toast, t])
+  }, [onUpload, toast, t, places, reservations])
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
@@ -130,24 +246,24 @@ export default function FileManager({ files = [], onUpload, onDelete, onUpdate, 
     noClick: false,
   })
 
-  // Paste support
   const handlePaste = useCallback((e) => {
     const items = e.clipboardData?.items
     if (!items) return
-    const files = []
+    const pastedFiles = []
     for (const item of Array.from(items)) {
       if (item.kind === 'file') {
         const file = item.getAsFile()
-        if (file) files.push(file)
+        if (file) pastedFiles.push(file)
       }
     }
-    if (files.length > 0) {
+    if (pastedFiles.length > 0) {
       e.preventDefault()
-      onDrop(files)
+      onDrop(pastedFiles)
     }
   }, [onDrop])
 
   const filteredFiles = files.filter(f => {
+    if (filterType === 'starred') return !!f.starred
     if (filterType === 'pdf') return f.mime_type === 'application/pdf'
     if (filterType === 'image') return isImage(f.mime_type)
     if (filterType === 'doc') return (f.mime_type || '').includes('word') || (f.mime_type || '').includes('excel') || (f.mime_type || '').includes('text')
@@ -156,16 +272,25 @@ export default function FileManager({ files = [], onUpload, onDelete, onUpdate, 
   })
 
   const handleDelete = async (id) => {
-    if (!confirm(t('files.confirm.delete'))) return
     try {
       await onDelete(id)
-      toast.success(t('files.toast.deleted'))
+      toast.success(t('files.toast.trashed') || 'Moved to trash')
     } catch {
       toast.error(t('files.toast.deleteError'))
     }
   }
 
   const [previewFile, setPreviewFile] = useState(null)
+  const [assignFileId, setAssignFileId] = useState<number | null>(null)
+
+  const handleAssign = async (fileId: number, data: { place_id?: number | null; reservation_id?: number | null }) => {
+    try {
+      await filesApi.update(tripId, fileId, data)
+      refreshFiles()
+    } catch {
+      toast.error(t('files.toast.assignError'))
+    }
+  }
 
   const openFile = (file) => {
     if (isImage(file.mime_type)) {
@@ -175,12 +300,259 @@ export default function FileManager({ files = [], onUpload, onDelete, onUpdate, 
     }
   }
 
+  const renderFileRow = (file: TripFile, isTrash = false) => {
+    const FileIcon = getFileIcon(file.mime_type)
+    const linkedPlace = places?.find(p => p.id === file.place_id)
+    const linkedReservation = file.reservation_id
+      ? (reservations?.find(r => r.id === file.reservation_id) || { title: file.reservation_title })
+      : null
+    const fileUrl = file.url || (file.filename?.startsWith('files/') ? `/uploads/${file.filename}` : `/uploads/files/${file.filename}`)
+
+    return (
+      <div key={file.id} style={{
+        background: 'var(--bg-card)', border: '1px solid var(--border-primary)', borderRadius: 12,
+        padding: '10px 12px', display: 'flex', alignItems: 'flex-start', gap: 10,
+        transition: 'border-color 0.12s',
+        opacity: isTrash ? 0.7 : 1,
+      }}
+        onMouseEnter={e => e.currentTarget.style.borderColor = 'var(--text-faint)'}
+        onMouseLeave={e => e.currentTarget.style.borderColor = 'var(--border-primary)'}
+        className="group"
+      >
+        {/* Icon or thumbnail */}
+        <div
+          onClick={() => !isTrash && openFile({ ...file, url: fileUrl })}
+          style={{
+            flexShrink: 0, width: 36, height: 36, borderRadius: 8,
+            background: 'var(--bg-tertiary)', display: 'flex', alignItems: 'center', justifyContent: 'center',
+            cursor: isTrash ? 'default' : 'pointer', overflow: 'hidden',
+          }}
+        >
+          {isImage(file.mime_type)
+            ? <img src={fileUrl} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+            : (() => {
+                const ext = (file.original_name || '').split('.').pop()?.toUpperCase() || '?'
+                const isPdf = file.mime_type === 'application/pdf'
+                return (
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', width: '100%', height: '100%', background: isPdf ? '#ef44441a' : 'var(--bg-tertiary)' }}>
+                    <span style={{ fontSize: 9, fontWeight: 700, color: isPdf ? '#ef4444' : 'var(--text-muted)', letterSpacing: 0.3 }}>{ext}</span>
+                  </div>
+                )
+              })()
+          }
+        </div>
+
+        {/* Info */}
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+            {file.uploaded_by_name && (
+              <AvatarChip name={file.uploaded_by_name} avatarUrl={file.uploaded_by_avatar} size={20} />
+            )}
+            {!isTrash && file.starred ? <Star size={12} fill="#facc15" color="#facc15" style={{ flexShrink: 0 }} /> : null}
+            <span
+              onClick={() => !isTrash && openFile({ ...file, url: fileUrl })}
+              style={{ fontWeight: 500, fontSize: 13, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', cursor: isTrash ? 'default' : 'pointer' }}
+            >
+              {file.original_name}
+            </span>
+          </div>
+
+          {file.description && (
+            <p style={{ fontSize: 11.5, color: 'var(--text-faint)', margin: '2px 0 0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{file.description}</p>
+          )}
+
+          <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 6, marginTop: 4 }}>
+            {file.file_size && <span style={{ fontSize: 11, color: 'var(--text-faint)' }}>{formatSize(file.file_size)}</span>}
+            <span style={{ fontSize: 11, color: 'var(--text-faint)' }}>{formatDateWithLocale(file.created_at, locale)}</span>
+
+            {linkedPlace && (
+              <SourceBadge icon={MapPin} label={`${t('files.sourcePlan')} · ${linkedPlace.name}`} />
+            )}
+            {linkedReservation && (
+              <SourceBadge icon={Ticket} label={`${t('files.sourceBooking')} · ${linkedReservation.title || t('files.sourceBooking')}`} />
+            )}
+            {file.note_id && (
+              <SourceBadge icon={StickyNote} label={t('files.sourceCollab') || 'Collab Notes'} />
+            )}
+          </div>
+        </div>
+
+        {/* Actions — always visible on mobile, hover on desktop */}
+        <div className="file-actions" style={{ display: 'flex', gap: 2, flexShrink: 0 }}>
+          {isTrash ? (
+            <>
+              <button onClick={() => handleRestore(file.id)} title={t('files.restore') || 'Restore'} style={{ padding: 6, background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-faint)', borderRadius: 6, display: 'flex' }}
+                onMouseEnter={e => e.currentTarget.style.color = '#22c55e'} onMouseLeave={e => e.currentTarget.style.color = 'var(--text-faint)'}>
+                <RotateCcw size={14} />
+              </button>
+              <button onClick={() => handlePermanentDelete(file.id)} title={t('common.delete')} style={{ padding: 6, background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-faint)', borderRadius: 6, display: 'flex' }}
+                onMouseEnter={e => e.currentTarget.style.color = '#ef4444'} onMouseLeave={e => e.currentTarget.style.color = 'var(--text-faint)'}>
+                <Trash2 size={14} />
+              </button>
+            </>
+          ) : (
+            <>
+              <button onClick={() => handleStar(file.id)} title={file.starred ? t('files.unstar') || 'Unstar' : t('files.star') || 'Star'} style={{ padding: 6, background: 'none', border: 'none', cursor: 'pointer', color: file.starred ? '#facc15' : 'var(--text-faint)', borderRadius: 6, display: 'flex' }}
+                onMouseEnter={e => { if (!file.starred) e.currentTarget.style.color = '#facc15' }} onMouseLeave={e => { if (!file.starred) e.currentTarget.style.color = 'var(--text-faint)' }}>
+                <Star size={14} fill={file.starred ? '#facc15' : 'none'} />
+              </button>
+              <button onClick={() => setAssignFileId(file.id)} title={t('files.assign') || 'Assign'} style={{ padding: 6, background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-faint)', borderRadius: 6, display: 'flex' }}
+                onMouseEnter={e => e.currentTarget.style.color = 'var(--text-primary)'} onMouseLeave={e => e.currentTarget.style.color = 'var(--text-faint)'}>
+                <Pencil size={14} />
+              </button>
+              <button onClick={() => openFile({ ...file, url: fileUrl })} title={t('common.open')} style={{ padding: 6, background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-faint)', borderRadius: 6, display: 'flex' }}
+                onMouseEnter={e => e.currentTarget.style.color = 'var(--text-primary)'} onMouseLeave={e => e.currentTarget.style.color = 'var(--text-faint)'}>
+                <ExternalLink size={14} />
+              </button>
+              <button onClick={() => handleDelete(file.id)} title={t('common.delete')} style={{ padding: 6, background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-faint)', borderRadius: 6, display: 'flex' }}
+                onMouseEnter={e => e.currentTarget.style.color = '#ef4444'} onMouseLeave={e => e.currentTarget.style.color = 'var(--text-faint)'}>
+                <Trash2 size={14} />
+              </button>
+            </>
+          )}
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="flex flex-col h-full" style={{ fontFamily: "-apple-system, BlinkMacSystemFont, 'SF Pro Text', system-ui, sans-serif" }} onPaste={handlePaste} tabIndex={-1}>
       {/* Lightbox */}
       {lightboxFile && <ImageLightbox file={lightboxFile} onClose={() => setLightboxFile(null)} />}
 
-      {/* Datei-Vorschau Modal — portal to body to escape stacking context */}
+      {/* Assign modal */}
+      {assignFileId && ReactDOM.createPortal(
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 5000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+          onClick={() => setAssignFileId(null)}>
+          <div style={{
+            background: 'var(--bg-card)', borderRadius: 16, boxShadow: '0 20px 60px rgba(0,0,0,0.2)',
+            width: 'min(600px, calc(100vw - 32px))', maxHeight: '70vh', overflow: 'hidden', display: 'flex', flexDirection: 'column',
+          }} onClick={e => e.stopPropagation()}>
+            <div style={{ padding: '16px 20px 12px', borderBottom: '1px solid var(--border-primary)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-primary)' }}>{t('files.assignTitle')}</div>
+                <div style={{ fontSize: 12, color: 'var(--text-faint)', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {files.find(f => f.id === assignFileId)?.original_name || ''}
+                </div>
+              </div>
+              <button onClick={() => setAssignFileId(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-faint)', padding: 4, display: 'flex', flexShrink: 0 }}>
+                <X size={18} />
+              </button>
+            </div>
+            <div style={{ padding: '8px 12px 0' }}>
+              <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-faint)', padding: '0 2px 4px', textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                {t('files.noteLabel') || 'Note'}
+              </div>
+              <input
+                type="text"
+                placeholder={t('files.notePlaceholder')}
+                defaultValue={files.find(f => f.id === assignFileId)?.description || ''}
+                onBlur={e => {
+                  const val = e.target.value.trim()
+                  const file = files.find(f => f.id === assignFileId)
+                  if (file && val !== (file.description || '')) {
+                    handleAssign(file.id, { description: val } as any)
+                  }
+                }}
+                onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
+                style={{
+                  width: '100%', padding: '7px 10px', fontSize: 13, borderRadius: 8,
+                  border: '1px solid var(--border-primary)', background: 'var(--bg-secondary)',
+                  color: 'var(--text-primary)', fontFamily: 'inherit', outline: 'none',
+                }}
+              />
+            </div>
+            <div style={{ overflowY: 'auto', padding: 8 }}>
+              {(() => {
+                const file = files.find(f => f.id === assignFileId)
+                if (!file) return null
+                const assignedPlaceIds = new Set<number>()
+                const dayGroups: { day: Day; dayPlaces: Place[] }[] = []
+                for (const day of days) {
+                  const da = assignments[String(day.id)] || []
+                  const dayPlaces = da.map(a => places.find(p => p.id === a.place?.id || p.id === a.place_id)).filter(Boolean) as Place[]
+                  if (dayPlaces.length > 0) {
+                    dayGroups.push({ day, dayPlaces })
+                    dayPlaces.forEach(p => assignedPlaceIds.add(p.id))
+                  }
+                }
+                const unassigned = places.filter(p => !assignedPlaceIds.has(p.id))
+                const placeBtn = (p: Place) => (
+                  <button key={p.id} onClick={() => handleAssign(file.id, { place_id: file.place_id === p.id ? null : p.id })} style={{
+                    width: '100%', textAlign: 'left', padding: '6px 10px 6px 20px', background: file.place_id === p.id ? 'var(--bg-hover)' : 'none',
+                    border: 'none', cursor: 'pointer', fontSize: 13, color: 'var(--text-primary)',
+                    borderRadius: 8, fontFamily: 'inherit', fontWeight: file.place_id === p.id ? 600 : 400,
+                    display: 'flex', alignItems: 'center', gap: 6,
+                  }}
+                    onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-hover)'}
+                    onMouseLeave={e => e.currentTarget.style.background = file.place_id === p.id ? 'var(--bg-hover)' : 'transparent'}>
+                    <MapPin size={12} style={{ flexShrink: 0, color: 'var(--text-muted)' }} />
+                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</span>
+                    {file.place_id === p.id && <Check size={14} style={{ marginLeft: 'auto', flexShrink: 0, color: 'var(--accent)' }} />}
+                  </button>
+                )
+
+                const placesSection = places.length > 0 && (
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-faint)', padding: '8px 10px 4px', textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                      {t('files.assignPlace')}
+                    </div>
+                    {dayGroups.map(({ day, dayPlaces }) => (
+                      <div key={day.id}>
+                        <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', padding: '8px 10px 2px' }}>
+                          {day.title || `${t('dayplan.dayN', { n: day.day_number })}${day.date ? ` · ${day.date}` : ''}`}
+                        </div>
+                        {dayPlaces.map(placeBtn)}
+                      </div>
+                    ))}
+                    {unassigned.length > 0 && (
+                      <div>
+                        {dayGroups.length > 0 && <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', padding: '8px 10px 2px' }}>{t('files.unassigned')}</div>}
+                        {unassigned.map(placeBtn)}
+                      </div>
+                    )}
+                  </div>
+                )
+
+                const bookingsSection = reservations.length > 0 && (
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-faint)', padding: '8px 10px 4px', textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                      {t('files.assignBooking')}
+                    </div>
+                    {reservations.map(r => (
+                      <button key={r.id} onClick={() => handleAssign(file.id, { reservation_id: file.reservation_id === r.id ? null : r.id })} style={{
+                        width: '100%', textAlign: 'left', padding: '6px 10px 6px 20px', background: file.reservation_id === r.id ? 'var(--bg-hover)' : 'none',
+                        border: 'none', cursor: 'pointer', fontSize: 13, color: 'var(--text-primary)',
+                        borderRadius: 8, fontFamily: 'inherit', fontWeight: file.reservation_id === r.id ? 600 : 400,
+                        display: 'flex', alignItems: 'center', gap: 6,
+                      }}
+                        onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-hover)'}
+                        onMouseLeave={e => e.currentTarget.style.background = file.reservation_id === r.id ? 'var(--bg-hover)' : 'transparent'}>
+                        <Ticket size={12} style={{ flexShrink: 0, color: 'var(--text-muted)' }} />
+                        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.title || r.name}</span>
+                        {file.reservation_id === r.id && <Check size={14} style={{ marginLeft: 'auto', flexShrink: 0, color: 'var(--accent)' }} />}
+                      </button>
+                    ))}
+                  </div>
+                )
+
+                const hasBoth = placesSection && bookingsSection
+                return (
+                  <div className={hasBoth ? 'md:flex' : ''}>
+                    <div className={hasBoth ? 'md:w-1/2' : ''} style={{ overflowY: 'auto', maxHeight: '55vh', paddingRight: hasBoth ? 6 : 0 }}>{placesSection}</div>
+                    {hasBoth && <div className="hidden md:block" style={{ width: 1, background: 'var(--border-primary)', flexShrink: 0 }} />}
+                    {hasBoth && <div className="block md:hidden" style={{ height: 1, background: 'var(--border-primary)', margin: '8px 0' }} />}
+                    <div className={hasBoth ? 'md:w-1/2' : ''} style={{ overflowY: 'auto', maxHeight: '55vh', paddingLeft: hasBoth ? 6 : 0 }}>{bookingsSection}</div>
+                  </div>
+                )
+              })()}
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
+
+      {/* PDF preview modal */}
       {previewFile && ReactDOM.createPortal(
         <div
           style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', zIndex: 10000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
@@ -225,172 +597,128 @@ export default function FileManager({ files = [], onUpload, onDelete, onUpdate, 
       {/* Header */}
       <div style={{ padding: '20px 24px 16px', borderBottom: '1px solid rgba(0,0,0,0.06)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
         <div>
-          <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700, color: 'var(--text-primary)' }}>{t('files.title')}</h2>
+          <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700, color: 'var(--text-primary)' }}>{showTrash ? (t('files.trash') || 'Trash') : t('files.title')}</h2>
           <p style={{ margin: '2px 0 0', fontSize: 12.5, color: 'var(--text-faint)' }}>
-            {files.length === 1 ? t('files.countSingular') : t('files.count', { count: files.length })}
+            {showTrash
+              ? `${trashFiles.length} ${trashFiles.length === 1 ? 'file' : 'files'}`
+              : (files.length === 1 ? t('files.countSingular') : t('files.count', { count: files.length }))}
           </p>
         </div>
+        <button onClick={toggleTrash} style={{
+          padding: '6px 12px', borderRadius: 8, border: '1px solid var(--border-primary)',
+          background: showTrash ? 'var(--accent)' : 'var(--bg-card)',
+          color: showTrash ? 'var(--accent-text)' : 'var(--text-muted)',
+          fontSize: 12, fontWeight: 500, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5,
+          fontFamily: 'inherit',
+        }}>
+          <Trash2 size={13} /> {t('files.trash') || 'Trash'}
+        </button>
       </div>
 
-      {/* Upload zone */}
-      <div
-        {...getRootProps()}
-        style={{
-          margin: '16px 16px 0', border: '2px dashed', borderRadius: 14, padding: '20px 16px',
-          textAlign: 'center', cursor: 'pointer', transition: 'all 0.15s',
-          borderColor: isDragActive ? 'var(--text-secondary)' : 'var(--border-primary)',
-          background: isDragActive ? 'var(--bg-secondary)' : 'var(--bg-card)',
-        }}
-      >
-        <input {...getInputProps()} />
-        <Upload size={24} style={{ margin: '0 auto 8px', color: isDragActive ? 'var(--text-secondary)' : 'var(--text-faint)', display: 'block' }} />
-        {uploading ? (
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, fontSize: 13, color: 'var(--text-secondary)' }}>
-            <div style={{ width: 14, height: 14, border: '2px solid var(--text-secondary)', borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
-            {t('files.uploading')}
+      {showTrash ? (
+        /* Trash view */
+        <div style={{ flex: 1, overflowY: 'auto', padding: '12px 16px 16px' }}>
+          {trashFiles.length > 0 && (
+            <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
+              <button onClick={handleEmptyTrash} style={{
+                padding: '5px 12px', borderRadius: 8, border: '1px solid #fecaca',
+                background: '#fef2f2', color: '#dc2626', fontSize: 12, fontWeight: 500,
+                cursor: 'pointer', fontFamily: 'inherit',
+              }}>
+                {t('files.emptyTrash') || 'Empty Trash'}
+              </button>
+            </div>
+          )}
+          {loadingTrash ? (
+            <div style={{ textAlign: 'center', padding: 40, color: 'var(--text-faint)' }}>
+              <div style={{ width: 20, height: 20, border: '2px solid var(--text-faint)', borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin 0.8s linear infinite', margin: '0 auto' }} />
+            </div>
+          ) : trashFiles.length === 0 ? (
+            <div style={{ textAlign: 'center', padding: '60px 20px', color: 'var(--text-faint)' }}>
+              <Trash2 size={40} style={{ color: 'var(--text-faint)', display: 'block', margin: '0 auto 12px' }} />
+              <p style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-secondary)', margin: '0 0 4px' }}>{t('files.trashEmpty') || 'Trash is empty'}</p>
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {trashFiles.map(file => renderFileRow(file, true))}
+            </div>
+          )}
+        </div>
+      ) : (
+        <>
+          {/* Upload zone */}
+          <div
+            {...getRootProps()}
+            style={{
+              margin: '16px 16px 0', border: '2px dashed', borderRadius: 14, padding: '20px 16px',
+              textAlign: 'center', cursor: 'pointer', transition: 'all 0.15s',
+              borderColor: isDragActive ? 'var(--text-secondary)' : 'var(--border-primary)',
+              background: isDragActive ? 'var(--bg-secondary)' : 'var(--bg-card)',
+            }}
+          >
+            <input {...getInputProps()} />
+            <Upload size={24} style={{ margin: '0 auto 8px', color: isDragActive ? 'var(--text-secondary)' : 'var(--text-faint)', display: 'block' }} />
+            {uploading ? (
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, fontSize: 13, color: 'var(--text-secondary)' }}>
+                <div style={{ width: 14, height: 14, border: '2px solid var(--text-secondary)', borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
+                {t('files.uploading')}
+              </div>
+            ) : (
+              <>
+                <p style={{ fontSize: 13, color: 'var(--text-secondary)', fontWeight: 500, margin: 0 }}>{t('files.dropzone')}</p>
+                <p style={{ fontSize: 11.5, color: 'var(--text-faint)', marginTop: 3 }}>{t('files.dropzoneHint')}</p>
+                <p style={{ fontSize: 10, color: 'var(--text-faint)', marginTop: 6, opacity: 0.7 }}>
+                  {(allowedFileTypes || 'jpg,jpeg,png,gif,webp,heic,pdf,doc,docx,xls,xlsx,txt,csv').toUpperCase().split(',').join(', ')} · Max 50 MB
+                </p>
+              </>
+            )}
           </div>
-        ) : (
-          <>
-            <p style={{ fontSize: 13, color: 'var(--text-secondary)', fontWeight: 500, margin: 0 }}>{t('files.dropzone')}</p>
-            <p style={{ fontSize: 11.5, color: 'var(--text-faint)', marginTop: 3 }}>{t('files.dropzoneHint')}</p>
-            <p style={{ fontSize: 10, color: 'var(--text-faint)', marginTop: 6, opacity: 0.7 }}>
-              {(allowedFileTypes || 'jpg,jpeg,png,gif,webp,heic,pdf,doc,docx,xls,xlsx,txt,csv').toUpperCase().split(',').join(', ')} · Max 50 MB
-            </p>
-          </>
-        )}
-      </div>
 
-      {/* Filter tabs */}
-      <div style={{ display: 'flex', gap: 4, padding: '12px 16px 0', flexShrink: 0 }}>
-        {[
-          { id: 'all', label: t('files.filterAll') },
-          { id: 'pdf', label: t('files.filterPdf') },
-          { id: 'image', label: t('files.filterImages') },
-          { id: 'doc', label: t('files.filterDocs') },
-          ...(files.some(f => f.note_id) ? [{ id: 'collab', label: t('files.filterCollab') || 'Collab' }] : []),
-        ].map(tab => (
-          <button key={tab.id} onClick={() => setFilterType(tab.id)} style={{
-            padding: '4px 12px', borderRadius: 99, border: 'none', cursor: 'pointer', fontSize: 12,
-            fontFamily: 'inherit', transition: 'all 0.12s',
-            background: filterType === tab.id ? 'var(--accent)' : 'transparent',
-            color: filterType === tab.id ? 'var(--accent-text)' : 'var(--text-muted)',
-            fontWeight: filterType === tab.id ? 600 : 400,
-          }}>{tab.label}</button>
-        ))}
-        <span style={{ marginLeft: 'auto', fontSize: 11.5, color: 'var(--text-faint)', alignSelf: 'center' }}>
-          {filteredFiles.length === 1 ? t('files.countSingular') : t('files.count', { count: filteredFiles.length })}
-        </span>
-      </div>
-
-      {/* File list */}
-      <div style={{ flex: 1, overflowY: 'auto', padding: '12px 16px 16px' }}>
-        {filteredFiles.length === 0 ? (
-          <div style={{ textAlign: 'center', padding: '60px 20px', color: 'var(--text-faint)' }}>
-            <FileText size={40} style={{ color: 'var(--text-faint)', display: 'block', margin: '0 auto 12px' }} />
-            <p style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-secondary)', margin: '0 0 4px' }}>{t('files.empty')}</p>
-            <p style={{ fontSize: 13, color: 'var(--text-faint)', margin: 0 }}>{t('files.emptyHint')}</p>
+          {/* Filter tabs */}
+          <div style={{ display: 'flex', gap: 4, padding: '12px 16px 0', flexShrink: 0, flexWrap: 'wrap' }}>
+            {[
+              { id: 'all', label: t('files.filterAll') },
+              ...(files.some(f => f.starred) ? [{ id: 'starred', icon: Star }] : []),
+              { id: 'pdf', label: t('files.filterPdf') },
+              { id: 'image', label: t('files.filterImages') },
+              { id: 'doc', label: t('files.filterDocs') },
+              ...(files.some(f => f.note_id) ? [{ id: 'collab', label: t('files.filterCollab') || 'Collab' }] : []),
+            ].map(tab => (
+              <button key={tab.id} onClick={() => setFilterType(tab.id)} style={{
+                padding: '4px 12px', borderRadius: 99, border: 'none', cursor: 'pointer', fontSize: 12,
+                fontFamily: 'inherit', transition: 'all 0.12s',
+                background: filterType === tab.id ? 'var(--accent)' : 'transparent',
+                color: filterType === tab.id ? 'var(--accent-text)' : 'var(--text-muted)',
+                fontWeight: filterType === tab.id ? 600 : 400,
+              }}>{tab.icon ? <tab.icon size={13} fill={filterType === tab.id ? '#facc15' : 'none'} color={filterType === tab.id ? '#facc15' : 'currentColor'} /> : tab.label}</button>
+            ))}
+            <span style={{ marginLeft: 'auto', fontSize: 11.5, color: 'var(--text-faint)', alignSelf: 'center' }}>
+              {filteredFiles.length === 1 ? t('files.countSingular') : t('files.count', { count: filteredFiles.length })}
+            </span>
           </div>
-        ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {filteredFiles.map(file => {
-              const FileIcon = getFileIcon(file.mime_type)
-              const linkedPlace = places?.find(p => p.id === file.place_id)
-              const linkedReservation = file.reservation_id
-                ? (reservations?.find(r => r.id === file.reservation_id) || { title: file.reservation_title })
-                : null
-              const fileUrl = file.url || (file.filename?.startsWith('files/') ? `/uploads/${file.filename}` : `/uploads/files/${file.filename}`)
 
-              return (
-                <div key={file.id} style={{
-                  background: 'var(--bg-card)', border: '1px solid var(--border-primary)', borderRadius: 12,
-                  padding: '10px 12px', display: 'flex', alignItems: 'flex-start', gap: 10,
-                  transition: 'border-color 0.12s',
-                }}
-                  onMouseEnter={e => e.currentTarget.style.borderColor = 'var(--text-faint)'}
-                  onMouseLeave={e => e.currentTarget.style.borderColor = 'var(--border-primary)'}
-                  className="group"
-                >
-                  {/* Icon or thumbnail */}
-                  <div
-                    onClick={() => openFile({ ...file, url: fileUrl })}
-                    style={{
-                      flexShrink: 0, width: 36, height: 36, borderRadius: 8,
-                      background: 'var(--bg-tertiary)', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                      cursor: 'pointer', overflow: 'hidden',
-                    }}
-                  >
-                    {isImage(file.mime_type)
-                      ? <img src={fileUrl} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                      : (() => {
-                          const ext = (file.original_name || '').split('.').pop()?.toUpperCase() || '?'
-                          const isPdf = file.mime_type === 'application/pdf'
-                          return (
-                            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', width: '100%', height: '100%', background: isPdf ? '#ef44441a' : 'var(--bg-tertiary)' }}>
-                              <span style={{ fontSize: 9, fontWeight: 700, color: isPdf ? '#ef4444' : 'var(--text-muted)', letterSpacing: 0.3 }}>{ext}</span>
-                            </div>
-                          )
-                        })()
-                    }
-                  </div>
-
-                  {/* Info */}
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div
-                      onClick={() => openFile({ ...file, url: fileUrl })}
-                      style={{ fontWeight: 500, fontSize: 13, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', cursor: 'pointer' }}
-                    >
-                      {file.original_name}
-                    </div>
-
-                    <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 6, marginTop: 4 }}>
-                      {file.file_size && <span style={{ fontSize: 11, color: 'var(--text-faint)' }}>{formatSize(file.file_size)}</span>}
-                      <span style={{ fontSize: 11, color: 'var(--text-faint)' }}>{formatDateWithLocale(file.created_at, locale)}</span>
-
-                      {linkedPlace && (
-                        <SourceBadge
-                          icon={MapPin}
-                          label={`${t('files.sourcePlan')} · ${linkedPlace.name}`}
-                        />
-                      )}
-                      {linkedReservation && (
-                        <SourceBadge
-                          icon={Ticket}
-                          label={`${t('files.sourceBooking')} · ${linkedReservation.title || t('files.sourceBooking')}`}
-                        />
-                      )}
-                      {file.note_id && (
-                        <SourceBadge
-                          icon={StickyNote}
-                          label={t('files.sourceCollab') || 'Collab Notes'}
-                        />
-                      )}
-                    </div>
-
-                    {file.description && !linkedReservation && (
-                      <p style={{ fontSize: 11.5, color: 'var(--text-faint)', marginTop: 3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{file.description}</p>
-                    )}
-                  </div>
-
-                  {/* Actions */}
-                  <div style={{ display: 'flex', gap: 2, flexShrink: 0, opacity: 0, transition: 'opacity 0.12s' }} className="file-actions">
-                    <button onClick={() => openFile({ ...file, url: fileUrl })} title={t('common.open')} style={{ padding: 6, background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-faint)', borderRadius: 6, display: 'flex' }}
-                      onMouseEnter={e => e.currentTarget.style.color = 'var(--text-primary)'} onMouseLeave={e => e.currentTarget.style.color = 'var(--text-faint)'}>
-                      <ExternalLink size={14} />
-                    </button>
-                    <button onClick={() => handleDelete(file.id)} title={t('common.delete')} style={{ padding: 6, background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-faint)', borderRadius: 6, display: 'flex' }}
-                      onMouseEnter={e => e.currentTarget.style.color = '#ef4444'} onMouseLeave={e => e.currentTarget.style.color = '#9ca3af'}>
-                      <Trash2 size={14} />
-                    </button>
-                  </div>
-                </div>
-              )
-            })}
+          {/* File list */}
+          <div style={{ flex: 1, overflowY: 'auto', padding: '12px 16px 16px' }}>
+            {filteredFiles.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: '60px 20px', color: 'var(--text-faint)' }}>
+                <FileText size={40} style={{ color: 'var(--text-faint)', display: 'block', margin: '0 auto 12px' }} />
+                <p style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-secondary)', margin: '0 0 4px' }}>{t('files.empty')}</p>
+                <p style={{ fontSize: 13, color: 'var(--text-faint)', margin: 0 }}>{t('files.emptyHint')}</p>
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {filteredFiles.map(file => renderFileRow(file))}
+              </div>
+            )}
           </div>
-        )}
-      </div>
+        </>
+      )}
 
       <style>{`
-        div:hover > .file-actions { opacity: 1 !important; }
+        @media (max-width: 767px) {
+          .file-actions button { padding: 8px !important; }
+          .file-actions svg { width: 18px !important; height: 18px !important; }
+        }
       `}</style>
     </div>
   )

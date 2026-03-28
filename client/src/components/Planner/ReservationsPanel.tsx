@@ -112,7 +112,7 @@ function ReservationCard({ r, tripId, onEdit, onDelete, files = [], onNavigateTo
       </div>
 
       {/* Details */}
-      {(r.reservation_time || r.confirmation_number || r.location || linked) && (
+      {(r.reservation_time || r.confirmation_number || r.location || linked || r.metadata) && (
         <div style={{ padding: '8px 12px', display: 'flex', flexDirection: 'column', gap: 6 }}>
           {/* Row 1: Date, Time, Code */}
           {(r.reservation_time || r.confirmation_number) && (
@@ -139,8 +139,34 @@ function ReservationCard({ r, tripId, onEdit, onDelete, files = [], onNavigateTo
               )}
             </div>
           )}
+          {/* Row 1b: Type-specific metadata */}
+          {(() => {
+            const meta = typeof r.metadata === 'string' ? JSON.parse(r.metadata || '{}') : (r.metadata || {})
+            if (!meta || Object.keys(meta).length === 0) return null
+            const cells: { label: string; value: string }[] = []
+            if (meta.airline) cells.push({ label: t('reservations.meta.airline'), value: meta.airline })
+            if (meta.flight_number) cells.push({ label: t('reservations.meta.flightNumber'), value: meta.flight_number })
+            if (meta.departure_airport) cells.push({ label: t('reservations.meta.from'), value: meta.departure_airport })
+            if (meta.arrival_airport) cells.push({ label: t('reservations.meta.to'), value: meta.arrival_airport })
+            if (meta.train_number) cells.push({ label: t('reservations.meta.trainNumber'), value: meta.train_number })
+            if (meta.platform) cells.push({ label: t('reservations.meta.platform'), value: meta.platform })
+            if (meta.seat) cells.push({ label: t('reservations.meta.seat'), value: meta.seat })
+            if (meta.check_in_time) cells.push({ label: t('reservations.meta.checkIn'), value: meta.check_in_time })
+            if (meta.check_out_time) cells.push({ label: t('reservations.meta.checkOut'), value: meta.check_out_time })
+            if (cells.length === 0) return null
+            return (
+              <div style={{ display: 'flex', gap: 0, borderRadius: 8, overflow: 'hidden', background: 'var(--bg-secondary)', boxShadow: '0 1px 6px rgba(0,0,0,0.08)' }}>
+                {cells.map((c, i) => (
+                  <div key={i} style={{ flex: 1, padding: '5px 10px', textAlign: 'center', borderRight: i < cells.length - 1 ? '1px solid var(--border-faint)' : 'none' }}>
+                    <div style={{ fontSize: 9, fontWeight: 600, color: 'var(--text-faint)', textTransform: 'uppercase', letterSpacing: '0.03em' }}>{c.label}</div>
+                    <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-primary)', marginTop: 1 }}>{c.value}</div>
+                  </div>
+                ))}
+              </div>
+            )
+          })()}
           {/* Row 2: Location + Assignment */}
-          {(r.location || linked) && (
+          {(r.location || linked || r.accommodation_name) && (
             <div className={`grid grid-cols-1 ${r.location && linked ? 'sm:grid-cols-2' : ''} gap-2`} style={{ paddingTop: 6, borderTop: '1px solid var(--border-faint)' }}>
               {r.location && (
                 <div>
@@ -148,6 +174,15 @@ function ReservationCard({ r, tripId, onEdit, onDelete, files = [], onNavigateTo
                   <div style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '4px 8px', borderRadius: 7, background: 'var(--bg-secondary)', fontSize: 11, color: 'var(--text-muted)' }}>
                     <MapPin size={10} style={{ color: 'var(--text-faint)', flexShrink: 0 }} />
                     <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.location}</span>
+                  </div>
+                </div>
+              )}
+              {r.accommodation_name && (
+                <div>
+                  <div style={{ fontSize: 9, fontWeight: 600, color: 'var(--text-faint)', textTransform: 'uppercase', letterSpacing: '0.03em', marginBottom: 3 }}>{t('reservations.meta.linkAccommodation')}</div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '4px 8px', borderRadius: 7, background: 'var(--bg-secondary)', fontSize: 11, color: 'var(--text-muted)' }}>
+                    <Hotel size={10} style={{ color: 'var(--text-faint)', flexShrink: 0 }} />
+                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.accommodation_name}</span>
                   </div>
                 </div>
               )}

@@ -6,7 +6,7 @@ import { useToast } from '../shared/Toast'
 import { useTranslation } from '../../i18n'
 import { CustomDatePicker } from '../shared/CustomDateTimePicker'
 import CustomTimePicker from '../shared/CustomTimePicker'
-import type { Day, Place, Reservation, TripFile, AssignmentsMap } from '../../types'
+import type { Day, Place, Reservation, TripFile, AssignmentsMap, Accommodation } from '../../types'
 
 const TYPE_OPTIONS = [
   { value: 'flight',     labelKey: 'reservations.type.flight',     Icon: Plane },
@@ -58,17 +58,22 @@ interface ReservationModalProps {
   files?: TripFile[]
   onFileUpload: (fd: FormData) => Promise<void>
   onFileDelete: (fileId: number) => Promise<void>
+  accommodations?: Accommodation[]
 }
 
-export function ReservationModal({ isOpen, onClose, onSave, reservation, days, places, assignments, selectedDayId, files = [], onFileUpload, onFileDelete }: ReservationModalProps) {
+export function ReservationModal({ isOpen, onClose, onSave, reservation, days, places, assignments, selectedDayId, files = [], onFileUpload, onFileDelete, accommodations = [] }: ReservationModalProps) {
   const toast = useToast()
   const { t, locale } = useTranslation()
   const fileInputRef = useRef(null)
 
   const [form, setForm] = useState({
     title: '', type: 'other', status: 'pending',
-    reservation_time: '', location: '', confirmation_number: '',
-    notes: '', assignment_id: '',
+    reservation_time: '', reservation_end_time: '', location: '', confirmation_number: '',
+    notes: '', assignment_id: '', accommodation_id: '',
+    meta_airline: '', meta_flight_number: '', meta_departure_airport: '', meta_arrival_airport: '',
+    meta_train_number: '', meta_platform: '', meta_seat: '',
+    meta_check_in_time: '', meta_check_out_time: '',
+    hotel_place_id: '', hotel_start_day: '', hotel_end_day: '',
   })
   const [isSaving, setIsSaving] = useState(false)
   const [uploadingFile, setUploadingFile] = useState(false)
@@ -81,6 +86,7 @@ export function ReservationModal({ isOpen, onClose, onSave, reservation, days, p
 
   useEffect(() => {
     if (reservation) {
+      const meta = typeof reservation.metadata === 'string' ? JSON.parse(reservation.metadata || '{}') : (reservation.metadata || {})
       setForm({
         title: reservation.title || '',
         type: reservation.type || 'other',
@@ -91,12 +97,28 @@ export function ReservationModal({ isOpen, onClose, onSave, reservation, days, p
         confirmation_number: reservation.confirmation_number || '',
         notes: reservation.notes || '',
         assignment_id: reservation.assignment_id || '',
+        accommodation_id: reservation.accommodation_id || '',
+        meta_airline: meta.airline || '',
+        meta_flight_number: meta.flight_number || '',
+        meta_departure_airport: meta.departure_airport || '',
+        meta_arrival_airport: meta.arrival_airport || '',
+        meta_train_number: meta.train_number || '',
+        meta_platform: meta.platform || '',
+        meta_seat: meta.seat || '',
+        meta_check_in_time: meta.check_in_time || '',
+        meta_check_out_time: meta.check_out_time || '',
+        hotel_place_id: (() => { const acc = accommodations.find(a => a.id == reservation.accommodation_id); return acc?.place_id || '' })(),
+        hotel_start_day: (() => { const acc = accommodations.find(a => a.id == reservation.accommodation_id); return acc?.start_day_id || '' })(),
+        hotel_end_day: (() => { const acc = accommodations.find(a => a.id == reservation.accommodation_id); return acc?.end_day_id || '' })(),
       })
     } else {
       setForm({
         title: '', type: 'other', status: 'pending',
         reservation_time: '', reservation_end_time: '', location: '', confirmation_number: '',
-        notes: '', assignment_id: '',
+        notes: '', assignment_id: '', accommodation_id: '',
+        meta_airline: '', meta_flight_number: '', meta_departure_airport: '', meta_arrival_airport: '',
+        meta_train_number: '', meta_platform: '', meta_seat: '',
+        meta_check_in_time: '', meta_check_out_time: '',
       })
       setPendingFiles([])
     }
@@ -109,10 +131,41 @@ export function ReservationModal({ isOpen, onClose, onSave, reservation, days, p
     if (!form.title.trim()) return
     setIsSaving(true)
     try {
-      const saved = await onSave({
-        ...form,
+      const metadata: Record<string, string> = {}
+      if (form.type === 'flight') {
+        if (form.meta_airline) metadata.airline = form.meta_airline
+        if (form.meta_flight_number) metadata.flight_number = form.meta_flight_number
+        if (form.meta_departure_airport) metadata.departure_airport = form.meta_departure_airport
+        if (form.meta_arrival_airport) metadata.arrival_airport = form.meta_arrival_airport
+      } else if (form.type === 'hotel') {
+        if (form.meta_check_in_time) metadata.check_in_time = form.meta_check_in_time
+        if (form.meta_check_out_time) metadata.check_out_time = form.meta_check_out_time
+      } else if (form.type === 'train') {
+        if (form.meta_train_number) metadata.train_number = form.meta_train_number
+        if (form.meta_platform) metadata.platform = form.meta_platform
+        if (form.meta_seat) metadata.seat = form.meta_seat
+      }
+      const saveData: Record<string, any> = {
+        title: form.title, type: form.type, status: form.status,
+        reservation_time: form.reservation_time, reservation_end_time: form.reservation_end_time,
+        location: form.location, confirmation_number: form.confirmation_number,
+        notes: form.notes,
         assignment_id: form.assignment_id || null,
-      })
+        accommodation_id: form.type === 'hotel' ? (form.accommodation_id || null) : null,
+        metadata: Object.keys(metadata).length > 0 ? metadata : null,
+      }
+      // If hotel with place + days, pass hotel data for auto-creation or update
+      if (form.type === 'hotel' && form.hotel_place_id && form.hotel_start_day && form.hotel_end_day) {
+        saveData.create_accommodation = {
+          place_id: form.hotel_place_id,
+          start_day_id: form.hotel_start_day,
+          end_day_id: form.hotel_end_day,
+          check_in: form.meta_check_in_time || null,
+          check_out: form.meta_check_out_time || null,
+          confirmation: form.confirmation_number || null,
+        }
+      }
+      const saved = await onSave(saveData)
       if (!reservation?.id && saved?.id && pendingFiles.length > 0) {
         for (const file of pendingFiles) {
           const fd = new FormData()
@@ -190,7 +243,8 @@ export function ReservationModal({ isOpen, onClose, onSave, reservation, days, p
             placeholder={t('reservations.titlePlaceholder')} style={inputStyle} />
         </div>
 
-        {/* Assignment Picker + Date */}
+        {/* Assignment Picker + Date (hidden for hotels) */}
+        {form.type !== 'hotel' && (
         <div style={{ display: 'flex', gap: 8 }}>
           {assignmentOptions.length > 0 && (
             <div style={{ flex: 1, minWidth: 0 }}>
@@ -231,24 +285,29 @@ export function ReservationModal({ isOpen, onClose, onSave, reservation, days, p
             />
           </div>
         </div>
+        )}
 
         {/* Start Time + End Time + Status */}
         <div style={{ display: 'flex', gap: 8 }}>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <label style={labelStyle}>{t('reservations.startTime')}</label>
-            <CustomTimePicker
-              value={(() => { const [, t] = (form.reservation_time || '').split('T'); return t || '' })()}
-              onChange={t => {
-                const [d] = (form.reservation_time || '').split('T')
-                const date = d || new Date().toISOString().split('T')[0]
-                set('reservation_time', t ? `${date}T${t}` : date)
-              }}
-            />
-          </div>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <label style={labelStyle}>{t('reservations.endTime')}</label>
-            <CustomTimePicker value={form.reservation_end_time} onChange={v => set('reservation_end_time', v)} />
-          </div>
+          {form.type !== 'hotel' && (
+            <>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <label style={labelStyle}>{t('reservations.startTime')}</label>
+                <CustomTimePicker
+                  value={(() => { const [, t] = (form.reservation_time || '').split('T'); return t || '' })()}
+                  onChange={t => {
+                    const [d] = (form.reservation_time || '').split('T')
+                    const date = d || new Date().toISOString().split('T')[0]
+                    set('reservation_time', t ? `${date}T${t}` : date)
+                  }}
+                />
+              </div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <label style={labelStyle}>{t('reservations.endTime')}</label>
+                <CustomTimePicker value={form.reservation_end_time} onChange={v => set('reservation_end_time', v)} />
+              </div>
+            </>
+          )}
           <div style={{ flex: 1, minWidth: 0 }}>
             <label style={labelStyle}>{t('reservations.status')}</label>
             <CustomSelect
@@ -276,6 +335,112 @@ export function ReservationModal({ isOpen, onClose, onSave, reservation, days, p
               placeholder={t('reservations.confirmationPlaceholder')} style={inputStyle} />
           </div>
         </div>
+
+        {/* Type-specific fields */}
+        {form.type === 'flight' && (
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <div>
+              <label style={labelStyle}>{t('reservations.meta.airline') || 'Airline'}</label>
+              <input type="text" value={form.meta_airline} onChange={e => set('meta_airline', e.target.value)}
+                placeholder="Lufthansa" style={inputStyle} />
+            </div>
+            <div>
+              <label style={labelStyle}>{t('reservations.meta.flightNumber') || 'Flight No.'}</label>
+              <input type="text" value={form.meta_flight_number} onChange={e => set('meta_flight_number', e.target.value)}
+                placeholder="LH 123" style={inputStyle} />
+            </div>
+            <div>
+              <label style={labelStyle}>{t('reservations.meta.from') || 'From'}</label>
+              <input type="text" value={form.meta_departure_airport} onChange={e => set('meta_departure_airport', e.target.value)}
+                placeholder="FRA" style={inputStyle} />
+            </div>
+            <div>
+              <label style={labelStyle}>{t('reservations.meta.to') || 'To'}</label>
+              <input type="text" value={form.meta_arrival_airport} onChange={e => set('meta_arrival_airport', e.target.value)}
+                placeholder="NRT" style={inputStyle} />
+            </div>
+          </div>
+        )}
+
+        {form.type === 'hotel' && (
+          <>
+            {/* Hotel place + day range */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div>
+                <label style={labelStyle}>{t('reservations.meta.hotelPlace')}</label>
+                <CustomSelect
+                  value={form.hotel_place_id}
+                  onChange={value => {
+                    set('hotel_place_id', value)
+                    const p = places.find(pl => pl.id === value)
+                    if (p) {
+                      if (!form.title) set('title', p.name)
+                      if (!form.location && p.address) set('location', p.address)
+                    }
+                  }}
+                  placeholder={t('reservations.meta.pickHotel')}
+                  options={[
+                    { value: '', label: '—' },
+                    ...places.map(p => ({ value: p.id, label: p.name })),
+                  ]}
+                  searchable
+                  size="sm"
+                />
+              </div>
+              <div>
+                <label style={labelStyle}>{t('reservations.meta.fromDay')}</label>
+                <CustomSelect
+                  value={form.hotel_start_day}
+                  onChange={value => set('hotel_start_day', value)}
+                  placeholder={t('reservations.meta.selectDay')}
+                  options={days.map(d => ({ value: d.id, label: d.title || `${t('dayplan.dayN', { n: d.day_number })}${d.date ? ` · ${formatDate(d.date, locale)}` : ''}` }))}
+                  size="sm"
+                />
+              </div>
+              <div>
+                <label style={labelStyle}>{t('reservations.meta.toDay')}</label>
+                <CustomSelect
+                  value={form.hotel_end_day}
+                  onChange={value => set('hotel_end_day', value)}
+                  placeholder={t('reservations.meta.selectDay')}
+                  options={days.map(d => ({ value: d.id, label: d.title || `${t('dayplan.dayN', { n: d.day_number })}${d.date ? ` · ${formatDate(d.date, locale)}` : ''}` }))}
+                  size="sm"
+                />
+              </div>
+            </div>
+            {/* Check-in/out times */}
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label style={labelStyle}>{t('reservations.meta.checkIn')}</label>
+                <CustomTimePicker value={form.meta_check_in_time} onChange={v => set('meta_check_in_time', v)} />
+              </div>
+              <div>
+                <label style={labelStyle}>{t('reservations.meta.checkOut')}</label>
+                <CustomTimePicker value={form.meta_check_out_time} onChange={v => set('meta_check_out_time', v)} />
+              </div>
+            </div>
+          </>
+        )}
+
+        {form.type === 'train' && (
+          <div className="grid grid-cols-3 gap-3">
+            <div>
+              <label style={labelStyle}>{t('reservations.meta.trainNumber') || 'Train No.'}</label>
+              <input type="text" value={form.meta_train_number} onChange={e => set('meta_train_number', e.target.value)}
+                placeholder="ICE 123" style={inputStyle} />
+            </div>
+            <div>
+              <label style={labelStyle}>{t('reservations.meta.platform') || 'Platform'}</label>
+              <input type="text" value={form.meta_platform} onChange={e => set('meta_platform', e.target.value)}
+                placeholder="12" style={inputStyle} />
+            </div>
+            <div>
+              <label style={labelStyle}>{t('reservations.meta.seat') || 'Seat'}</label>
+              <input type="text" value={form.meta_seat} onChange={e => set('meta_seat', e.target.value)}
+                placeholder="42A" style={inputStyle} />
+            </div>
+          </div>
+        )}
 
         {/* Notes */}
         <div>

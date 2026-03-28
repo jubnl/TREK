@@ -219,9 +219,27 @@ accommodationsRouter.post('/', authenticate, requireTripAccess, (req: Request, r
     'INSERT INTO day_accommodations (trip_id, place_id, start_day_id, end_day_id, check_in, check_out, confirmation, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
   ).run(tripId, place_id, start_day_id, end_day_id, check_in || null, check_out || null, confirmation || null, notes || null);
 
-  const accommodation = getAccommodationWithPlace(result.lastInsertRowid);
+  const accommodationId = result.lastInsertRowid;
+
+  // Auto-create linked reservation for this accommodation
+  const placeName = (db.prepare('SELECT name FROM places WHERE id = ?').get(place_id) as { name: string } | undefined)?.name || 'Hotel';
+  const startDayDate = (db.prepare('SELECT date FROM days WHERE id = ?').get(start_day_id) as { date: string } | undefined)?.date || null;
+  const meta: Record<string, string> = {};
+  if (check_in) meta.check_in_time = check_in;
+  if (check_out) meta.check_out_time = check_out;
+  db.prepare(`
+    INSERT INTO reservations (trip_id, day_id, title, reservation_time, location, confirmation_number, notes, status, type, accommodation_id, metadata)
+    VALUES (?, ?, ?, ?, ?, ?, ?, 'confirmed', 'hotel', ?, ?)
+  `).run(
+    tripId, start_day_id, placeName, startDayDate || null, null,
+    confirmation || null, notes || null, accommodationId,
+    Object.keys(meta).length > 0 ? JSON.stringify(meta) : null
+  );
+
+  const accommodation = getAccommodationWithPlace(accommodationId);
   res.status(201).json({ accommodation });
   broadcast(tripId, 'accommodation:created', { accommodation }, req.headers['x-socket-id'] as string);
+  broadcast(tripId, 'reservation:created', {}, req.headers['x-socket-id'] as string);
 });
 
 accommodationsRouter.put('/:id', authenticate, requireTripAccess, (req: Request, res: Response) => {
@@ -260,6 +278,16 @@ accommodationsRouter.put('/:id', authenticate, requireTripAccess, (req: Request,
     'UPDATE day_accommodations SET place_id = ?, start_day_id = ?, end_day_id = ?, check_in = ?, check_out = ?, confirmation = ?, notes = ? WHERE id = ?'
   ).run(newPlaceId, newStartDayId, newEndDayId, newCheckIn, newCheckOut, newConfirmation, newNotes, id);
 
+  // Sync check-in/out/confirmation to linked reservation
+  const linkedRes = db.prepare('SELECT id, metadata FROM reservations WHERE accommodation_id = ?').get(Number(id)) as { id: number; metadata: string | null } | undefined;
+  if (linkedRes) {
+    const meta = linkedRes.metadata ? JSON.parse(linkedRes.metadata) : {};
+    if (newCheckIn) meta.check_in_time = newCheckIn;
+    if (newCheckOut) meta.check_out_time = newCheckOut;
+    db.prepare('UPDATE reservations SET metadata = ?, confirmation_number = COALESCE(?, confirmation_number) WHERE id = ?')
+      .run(JSON.stringify(meta), newConfirmation || null, linkedRes.id);
+  }
+
   const accommodation = getAccommodationWithPlace(Number(id));
   res.json({ accommodation });
   broadcast(tripId, 'accommodation:updated', { accommodation }, req.headers['x-socket-id'] as string);
@@ -270,6 +298,13 @@ accommodationsRouter.delete('/:id', authenticate, requireTripAccess, (req: Reque
 
   const existing = db.prepare('SELECT * FROM day_accommodations WHERE id = ? AND trip_id = ?').get(id, tripId);
   if (!existing) return res.status(404).json({ error: 'Accommodation not found' });
+
+  // Delete linked reservation
+  const linkedRes = db.prepare('SELECT id FROM reservations WHERE accommodation_id = ?').get(Number(id)) as { id: number } | undefined;
+  if (linkedRes) {
+    db.prepare('DELETE FROM reservations WHERE id = ?').run(linkedRes.id);
+    broadcast(tripId, 'reservation:deleted', { reservationId: linkedRes.id }, req.headers['x-socket-id'] as string);
+  }
 
   db.prepare('DELETE FROM day_accommodations WHERE id = ?').run(id);
   res.json({ success: true });

@@ -42,6 +42,7 @@ interface PlaceFormModalProps {
   onClose: () => void
   onSave: (data: PlaceFormData, files?: File[]) => Promise<void> | void
   place: Place | null
+  prefillCoords?: { lat: number; lng: number; name?: string; address?: string } | null
   tripId: number
   categories: Category[]
   onCategoryCreated: (category: Category) => void
@@ -50,7 +51,7 @@ interface PlaceFormModalProps {
 }
 
 export default function PlaceFormModal({
-  isOpen, onClose, onSave, place, tripId, categories,
+  isOpen, onClose, onSave, place, prefillCoords, tripId, categories,
   onCategoryCreated, assignmentId, dayAssignments = [],
 }: PlaceFormModalProps) {
   const [form, setForm] = useState(DEFAULT_FORM)
@@ -81,11 +82,19 @@ export default function PlaceFormModal({
         transport_mode: place.transport_mode || 'walking',
         website: place.website || '',
       })
+    } else if (prefillCoords) {
+      setForm({
+        ...DEFAULT_FORM,
+        lat: String(prefillCoords.lat),
+        lng: String(prefillCoords.lng),
+        name: prefillCoords.name || '',
+        address: prefillCoords.address || '',
+      })
     } else {
       setForm(DEFAULT_FORM)
     }
     setPendingFiles([])
-  }, [place, isOpen])
+  }, [place, prefillCoords, isOpen])
 
   const handleChange = (field, value) => {
     setForm(prev => ({ ...prev, [field]: value }))
@@ -112,6 +121,9 @@ export default function PlaceFormModal({
       lat: result.lat || prev.lat,
       lng: result.lng || prev.lng,
       google_place_id: result.google_place_id || prev.google_place_id,
+      osm_id: result.osm_id || prev.osm_id,
+      website: result.website || prev.website,
+      phone: result.phone || prev.phone,
     }))
     setMapsResults([])
     setMapsSearch('')

@@ -24,12 +24,18 @@ const COUNTRY_BOXES: Record<string, [number, number, number, number]> = {
 };
 
 function getCountryFromCoords(lat: number, lng: number): string | null {
+  let bestCode: string | null = null;
+  let bestArea = Infinity;
   for (const [code, [minLng, minLat, maxLng, maxLat]] of Object.entries(COUNTRY_BOXES)) {
     if (lat >= minLat && lat <= maxLat && lng >= minLng && lng <= maxLng) {
-      return code;
+      const area = (maxLng - minLng) * (maxLat - minLat);
+      if (area < bestArea) {
+        bestArea = area;
+        bestCode = code;
+      }
     }
   }
-  return null;
+  return bestCode;
 }
 
 const NAME_TO_CODE: Record<string, string> = {

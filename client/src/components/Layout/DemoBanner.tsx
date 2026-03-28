@@ -25,7 +25,7 @@ const texts: Record<string, DemoTexts> = {
   de: {
     titleBefore: 'Willkommen bei ',
     titleAfter: '',
-    title: 'Willkommen zur NOMAD Demo',
+    title: 'Willkommen zur TREK Demo',
     description: 'Du kannst Reisen ansehen, bearbeiten und eigene erstellen. Alle Aenderungen werden jede Stunde automatisch zurueckgesetzt.',
     resetIn: 'Naechster Reset in',
     minutes: 'Minuten',
@@ -48,7 +48,7 @@ const texts: Record<string, DemoTexts> = {
       ['Dokumente', 'Dateien an Reisen anhaengen'],
       ['Widgets', 'Waehrungsrechner & Zeitzonen'],
     ],
-    whatIs: 'Was ist NOMAD?',
+    whatIs: 'Was ist TREK?',
     whatIsDesc: 'Ein selbst-gehosteter Reiseplaner mit Echtzeit-Kollaboration, interaktiver Karte, OIDC Login und Dark Mode.',
     selfHost: 'Open Source — ',
     selfHostLink: 'selbst hosten',
@@ -57,7 +57,7 @@ const texts: Record<string, DemoTexts> = {
   en: {
     titleBefore: 'Welcome to ',
     titleAfter: '',
-    title: 'Welcome to the NOMAD Demo',
+    title: 'Welcome to the TREK Demo',
     description: 'You can view, edit and create trips. All changes are automatically reset every hour.',
     resetIn: 'Next reset in',
     minutes: 'minutes',
@@ -80,11 +80,43 @@ const texts: Record<string, DemoTexts> = {
       ['Documents', 'Attach files to trips'],
       ['Widgets', 'Currency converter & timezones'],
     ],
-    whatIs: 'What is NOMAD?',
+    whatIs: 'What is TREK?',
     whatIsDesc: 'A self-hosted travel planner with real-time collaboration, interactive maps, OIDC login and dark mode.',
     selfHost: 'Open source — ',
     selfHostLink: 'self-host it',
     close: 'Got it',
+  },
+  es: {
+    titleBefore: 'Bienvenido a ',
+    titleAfter: '',
+    title: 'Bienvenido a la demo de TREK',
+    description: 'Puedes ver, editar y crear viajes. Todos los cambios se restablecen automáticamente cada hora.',
+    resetIn: 'Próximo reinicio en',
+    minutes: 'minutos',
+    uploadNote: 'Las subidas de archivos (fotos, documentos, portadas) están desactivadas en el modo demo.',
+    fullVersionTitle: 'Además, en la versión completa:',
+    features: [
+      'Subida de archivos (fotos, documentos, portadas)',
+      'Gestión de claves API (Google Maps, tiempo)',
+      'Gestión de usuarios y permisos',
+      'Copias de seguridad automáticas',
+      'Gestión de addons (activar/desactivar)',
+      'Inicio de sesión único OIDC / SSO',
+    ],
+    addonsTitle: 'Complementos modulares (se pueden desactivar en la versión completa)',
+    addons: [
+      ['Vacaciones', 'Planificador de vacaciones con calendario, festivos y fusión de usuarios'],
+      ['Atlas', 'Mapa del mundo con países visitados y estadísticas de viaje'],
+      ['Equipaje', 'Listas de comprobación para cada viaje'],
+      ['Presupuesto', 'Control de gastos con reparto'],
+      ['Documentos', 'Adjunta archivos a los viajes'],
+      ['Widgets', 'Conversor de divisas y zonas horarias'],
+    ],
+    whatIs: '¿Qué es TREK?',
+    whatIsDesc: 'Un planificador de viajes autohospedado con colaboración en tiempo real, mapas interactivos, inicio de sesión OIDC y modo oscuro.',
+    selfHost: 'Código abierto — ',
+    selfHostLink: 'alójalo tú mismo',
+    close: 'Entendido',
   },
 }
 
@@ -123,7 +155,7 @@ export default function DemoBanner(): React.ReactElement | null {
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
           <img src="/icons/icon-dark.svg" alt="" style={{ width: 36, height: 36, borderRadius: 10 }} />
           <h2 style={{ margin: 0, fontSize: 17, fontWeight: 700, color: '#111827', display: 'flex', alignItems: 'center', gap: 5 }}>
-            {t.titleBefore}<img src="/text-dark.svg" alt="NOMAD" style={{ height: 18 }} />{t.titleAfter}
+            {t.titleBefore}<img src="/text-dark.svg" alt="TREK" style={{ height: 18 }} />{t.titleAfter}
           </h2>
         </div>
 
@@ -151,7 +183,7 @@ export default function DemoBanner(): React.ReactElement | null {
           </div>
         </div>
 
-        {/* What is NOMAD */}
+        {/* What is TREK */}
         <div style={{
           background: '#f8fafc', borderRadius: 12, padding: '12px 14px', marginBottom: 16,
           border: '1px solid #e2e8f0',
@@ -159,7 +191,7 @@ export default function DemoBanner(): React.ReactElement | null {
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
             <Map size={14} style={{ color: '#111827' }} />
             <span style={{ fontSize: 12, fontWeight: 700, color: '#111827', display: 'flex', alignItems: 'center', gap: 4 }}>
-              {language === 'de' ? 'Was ist ' : 'What is '}<img src="/text-dark.svg" alt="NOMAD" style={{ height: 13, marginRight: -2 }} />?
+              {t.whatIs}
             </span>
           </div>
           <p style={{ fontSize: 12, color: '#64748b', lineHeight: 1.5, margin: 0 }}>{t.whatIsDesc}</p>
@@ -213,7 +245,7 @@ export default function DemoBanner(): React.ReactElement | null {
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: '#9ca3af' }}>
             <Github size={13} />
             <span>{t.selfHost}</span>
-            <a href="https://github.com/mauriceboe/NOMAD" target="_blank" rel="noopener noreferrer"
+            <a href="https://github.com/mauriceboe/TREK" target="_blank" rel="noopener noreferrer"
               style={{ color: '#111827', fontWeight: 600, textDecoration: 'none' }}>
               {t.selfHostLink}
             </a>

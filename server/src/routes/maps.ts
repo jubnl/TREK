@@ -13,6 +13,166 @@ interface NominatimResult {
   lon: string;
 }
 
+interface OverpassElement {
+  tags?: Record<string, string>;
+}
+
+interface WikiCommonsPage {
+  imageinfo?: { url?: string; extmetadata?: { Artist?: { value?: string } } }[];
+}
+
+const UA = 'TREK Travel Planner (https://github.com/mauriceboe/NOMAD)';
+
+// ── OSM Enrichment: Overpass API for details ──────────────────────────────────
+
+async function fetchOverpassDetails(osmType: string, osmId: string): Promise<OverpassElement | null> {
+  const typeMap: Record<string, string> = { node: 'node', way: 'way', relation: 'rel' };
+  const oType = typeMap[osmType];
+  if (!oType) return null;
+  const query = `[out:json][timeout:5];${oType}(${osmId});out tags;`;
+  try {
+    const res = await fetch('https://overpass-api.de/api/interpreter', {
+      method: 'POST',
+      headers: { 'User-Agent': UA, 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: `data=${encodeURIComponent(query)}`,
+    });
+    if (!res.ok) return null;
+    const data = await res.json() as { elements?: OverpassElement[] };
+    return data.elements?.[0] || null;
+  } catch { return null; }
+}
+
+function parseOpeningHours(ohString: string): { weekdayDescriptions: string[]; openNow: boolean | null } {
+  const DAYS = ['Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa', 'Su'];
+  const LONG = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+  const result: string[] = LONG.map(d => `${d}: ?`);
+
+  // Parse segments like "Mo-Fr 09:00-18:00; Sa 10:00-14:00"
+  for (const segment of ohString.split(';')) {
+    const trimmed = segment.trim();
+    if (!trimmed) continue;
+    const match = trimmed.match(/^((?:Mo|Tu|We|Th|Fr|Sa|Su)(?:\s*-\s*(?:Mo|Tu|We|Th|Fr|Sa|Su))?(?:\s*,\s*(?:Mo|Tu|We|Th|Fr|Sa|Su)(?:\s*-\s*(?:Mo|Tu|We|Th|Fr|Sa|Su))?)*)\s+(.+)$/i);
+    if (!match) continue;
+    const [, daysPart, timePart] = match;
+    const dayIndices = new Set<number>();
+    for (const range of daysPart.split(',')) {
+      const parts = range.trim().split('-').map(d => DAYS.indexOf(d.trim()));
+      if (parts.length === 2 && parts[0] >= 0 && parts[1] >= 0) {
+        for (let i = parts[0]; i !== (parts[1] + 1) % 7; i = (i + 1) % 7) dayIndices.add(i);
+        dayIndices.add(parts[1]);
+      } else if (parts[0] >= 0) {
+        dayIndices.add(parts[0]);
+      }
+    }
+    for (const idx of dayIndices) {
+      result[idx] = `${LONG[idx]}: ${timePart.trim()}`;
+    }
+  }
+
+  // Compute openNow
+  let openNow: boolean | null = null;
+  try {
+    const now = new Date();
+    const jsDay = now.getDay();
+    const dayIdx = jsDay === 0 ? 6 : jsDay - 1;
+    const todayLine = result[dayIdx];
+    const timeRanges = [...todayLine.matchAll(/(\d{1,2}):(\d{2})\s*-\s*(\d{1,2}):(\d{2})/g)];
+    if (timeRanges.length > 0) {
+      const nowMins = now.getHours() * 60 + now.getMinutes();
+      openNow = timeRanges.some(m => {
+        const start = parseInt(m[1]) * 60 + parseInt(m[2]);
+        const end = parseInt(m[3]) * 60 + parseInt(m[4]);
+        return end > start ? nowMins >= start && nowMins < end : nowMins >= start || nowMins < end;
+      });
+    }
+  } catch { /* best effort */ }
+
+  return { weekdayDescriptions: result, openNow };
+}
+
+function buildOsmDetails(tags: Record<string, string>, osmType: string, osmId: string) {
+  let opening_hours: string[] | null = null;
+  let open_now: boolean | null = null;
+  if (tags.opening_hours) {
+    const parsed = parseOpeningHours(tags.opening_hours);
+    const hasData = parsed.weekdayDescriptions.some(line => !line.endsWith('?'));
+    if (hasData) {
+      opening_hours = parsed.weekdayDescriptions;
+      open_now = parsed.openNow;
+    }
+  }
+  return {
+    website: tags['contact:website'] || tags.website || null,
+    phone: tags['contact:phone'] || tags.phone || null,
+    opening_hours,
+    open_now,
+    osm_url: `https://www.openstreetmap.org/${osmType}/${osmId}`,
+    summary: tags.description || null,
+    source: 'openstreetmap' as const,
+  };
+}
+
+// ── Wikimedia Commons: Free place photos ──────────────────────────────────────
+
+async function fetchWikimediaPhoto(lat: number, lng: number, name?: string): Promise<{ photoUrl: string; attribution: string | null } | null> {
+  // Strategy 1: Search Wikipedia for the place name → get the article image
+  if (name) {
+    try {
+      const searchParams = new URLSearchParams({
+        action: 'query', format: 'json',
+        titles: name,
+        prop: 'pageimages',
+        piprop: 'original',
+        pilimit: '1',
+        redirects: '1',
+      });
+      const res = await fetch(`https://en.wikipedia.org/w/api.php?${searchParams}`, { headers: { 'User-Agent': UA } });
+      if (res.ok) {
+        const data = await res.json() as { query?: { pages?: Record<string, { original?: { source?: string } }> } };
+        const pages = data.query?.pages;
+        if (pages) {
+          for (const page of Object.values(pages)) {
+            if (page.original?.source) {
+              return { photoUrl: page.original.source, attribution: 'Wikipedia' };
+            }
+          }
+        }
+      }
+    } catch { /* fall through to geosearch */ }
+  }
+
+  // Strategy 2: Wikimedia Commons geosearch by coordinates
+  const params = new URLSearchParams({
+    action: 'query', format: 'json',
+    generator: 'geosearch',
+    ggsprimary: 'all',
+    ggsnamespace: '6',
+    ggsradius: '300',
+    ggscoord: `${lat}|${lng}`,
+    ggslimit: '5',
+    prop: 'imageinfo',
+    iiprop: 'url|extmetadata|mime',
+    iiurlwidth: '600',
+  });
+  try {
+    const res = await fetch(`https://commons.wikimedia.org/w/api.php?${params}`, { headers: { 'User-Agent': UA } });
+    if (!res.ok) return null;
+    const data = await res.json() as { query?: { pages?: Record<string, WikiCommonsPage & { imageinfo?: { mime?: string }[] }> } };
+    const pages = data.query?.pages;
+    if (!pages) return null;
+    for (const page of Object.values(pages)) {
+      const info = page.imageinfo?.[0];
+      // Only use actual photos (JPEG/PNG), skip SVGs and PDFs
+      const mime = (info as { mime?: string })?.mime || '';
+      if (info?.url && (mime.startsWith('image/jpeg') || mime.startsWith('image/png'))) {
+        const attribution = info.extmetadata?.Artist?.value?.replace(/<[^>]+>/g, '').trim() || null;
+        return { photoUrl: info.url, attribution };
+      }
+    }
+    return null;
+  } catch { return null; }
+}
+
 interface GooglePlaceResult {
   id: string;
   displayName?: { text: string };
@@ -69,13 +229,13 @@ async function searchNominatim(query: string, lang?: string) {
     'accept-language': lang || 'en',
   });
   const response = await fetch(`https://nominatim.openstreetmap.org/search?${params}`, {
-    headers: { 'User-Agent': 'NOMAD Travel Planner (https://github.com/mauriceboe/NOMAD)' },
+    headers: { 'User-Agent': 'TREK Travel Planner (https://github.com/mauriceboe/NOMAD)' },
   });
   if (!response.ok) throw new Error('Nominatim API error');
   const data = await response.json() as NominatimResult[];
   return data.map(item => ({
     google_place_id: null,
-    osm_id: `${item.osm_type}/${item.osm_id}`,
+    osm_id: `${item.osm_type}:${item.osm_id}`,
     name: item.name || item.display_name?.split(',')[0] || '',
     address: item.display_name || '',
     lat: parseFloat(item.lat) || null,
@@ -145,6 +305,21 @@ router.get('/details/:placeId', authenticate, async (req: Request, res: Response
   const authReq = req as AuthRequest;
   const { placeId } = req.params;
 
+  // OSM details: placeId is "node:123456" or "way:123456" etc.
+  if (placeId.includes(':')) {
+    const [osmType, osmId] = placeId.split(':');
+    try {
+      const element = await fetchOverpassDetails(osmType, osmId);
+      if (!element?.tags) return res.json({ place: buildOsmDetails({}, osmType, osmId) });
+      res.json({ place: buildOsmDetails(element.tags, osmType, osmId) });
+    } catch (err: unknown) {
+      console.error('OSM details error:', err);
+      res.status(500).json({ error: 'Error fetching OSM details' });
+    }
+    return;
+  }
+
+  // Google details
   const apiKey = getMapsKey(authReq.user.id);
   if (!apiKey) {
     return res.status(400).json({ error: 'Google Maps API key not configured' });
@@ -187,6 +362,7 @@ router.get('/details/:placeId', authenticate, async (req: Request, res: Response
         time: r.relativePublishTimeDescription || null,
         photo: r.authorAttribution?.photoUri || null,
       })),
+      source: 'google' as const,
     };
 
     res.json({ place });
@@ -205,11 +381,28 @@ router.get('/place-photo/:placeId', authenticate, async (req: Request, res: Resp
     return res.json({ photoUrl: cached.photoUrl, attribution: cached.attribution });
   }
 
+  // Wikimedia Commons fallback for OSM places (using lat/lng query params)
+  const lat = parseFloat(req.query.lat as string);
+  const lng = parseFloat(req.query.lng as string);
+
   const apiKey = getMapsKey(authReq.user.id);
-  if (!apiKey) {
-    return res.status(400).json({ error: 'Google Maps API key not configured' });
+  const isCoordLookup = placeId.startsWith('coords:');
+
+  // No Google key or coordinate-only lookup → try Wikimedia
+  if (!apiKey || isCoordLookup) {
+    if (!isNaN(lat) && !isNaN(lng)) {
+      try {
+        const wiki = await fetchWikimediaPhoto(lat, lng, req.query.name as string);
+        if (wiki) {
+          photoCache.set(placeId, { ...wiki, fetchedAt: Date.now() });
+          return res.json(wiki);
+        }
+      } catch { /* fall through */ }
+    }
+    return res.status(404).json({ error: 'No photo available' });
   }
 
+  // Google Photos
   try {
     const detailsRes = await fetch(`https://places.googleapis.com/v1/places/${placeId}`, {
       headers: {
@@ -256,6 +449,28 @@ router.get('/place-photo/:placeId', authenticate, async (req: Request, res: Resp
   } catch (err: unknown) {
     console.error('Place photo error:', err);
     res.status(500).json({ error: 'Error fetching photo' });
+  }
+});
+
+// Reverse geocoding via Nominatim
+router.get('/reverse', authenticate, async (req: Request, res: Response) => {
+  const { lat, lng, lang } = req.query as { lat: string; lng: string; lang?: string };
+  if (!lat || !lng) return res.status(400).json({ error: 'lat and lng required' });
+  try {
+    const params = new URLSearchParams({
+      lat, lon: lng, format: 'json', addressdetails: '1', zoom: '18',
+      'accept-language': lang || 'en',
+    });
+    const response = await fetch(`https://nominatim.openstreetmap.org/reverse?${params}`, {
+      headers: { 'User-Agent': UA },
+    });
+    if (!response.ok) return res.json({ name: null, address: null });
+    const data = await response.json() as { name?: string; display_name?: string; address?: Record<string, string> };
+    const addr = data.address || {};
+    const name = data.name || addr.tourism || addr.amenity || addr.shop || addr.building || addr.road || null;
+    res.json({ name, address: data.display_name || null });
+  } catch {
+    res.json({ name: null, address: null });
   }
 });
 

@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
-import { Tag, Calendar, ExternalLink, ChevronDown, ChevronUp, Loader2 } from 'lucide-react'
-import { useTranslation } from '../../i18n'
+import { Tag, Calendar, ExternalLink, ChevronDown, ChevronUp, Loader2, Heart, Coffee } from 'lucide-react'
+import { getLocaleForLanguage, useTranslation } from '../../i18n'
+import apiClient from '../../api/client'
 
 const REPO = 'mauriceboe/NOMAD'
 const PER_PAGE = 10
@@ -17,9 +18,8 @@ export default function GitHubPanel() {
 
   const fetchReleases = async (pageNum = 1, append = false) => {
     try {
-      const res = await fetch(`https://api.github.com/repos/${REPO}/releases?per_page=${PER_PAGE}&page=${pageNum}`)
-      if (!res.ok) throw new Error(`GitHub API: ${res.status}`)
-      const data = await res.json()
+      const res = await apiClient.get(`/auth/github-releases`, { params: { per_page: PER_PAGE, page: pageNum } })
+      const data = res.data
       setReleases(prev => append ? [...prev, ...data] : data)
       setHasMore(data.length === PER_PAGE)
     } catch (err: unknown) {
@@ -46,7 +46,7 @@ export default function GitHubPanel() {
 
   const formatDate = (dateStr) => {
     const d = new Date(dateStr)
-    return d.toLocaleDateString(language === 'de' ? 'de-DE' : 'en-US', { day: 'numeric', month: 'short', year: 'numeric' })
+    return d.toLocaleDateString(getLocaleForLanguage(language), { day: 'numeric', month: 'short', year: 'numeric' })
   }
 
   // Simple markdown-to-html for release notes (handles headers, bold, lists, links)
@@ -112,30 +112,63 @@ export default function GitHubPanel() {
     return elements
   }
 
-  if (loading) {
-    return (
-      <div className="rounded-xl border overflow-hidden" style={{ background: 'var(--bg-card)', borderColor: 'var(--border-primary)' }}>
-        <div className="p-8 flex items-center justify-center">
-          <Loader2 className="w-6 h-6 animate-spin" style={{ color: 'var(--text-muted)' }} />
-        </div>
-      </div>
-    )
-  }
-
-  if (error) {
-    return (
-      <div className="rounded-xl border overflow-hidden" style={{ background: 'var(--bg-card)', borderColor: 'var(--border-primary)' }}>
-        <div className="p-6 text-center">
-          <p className="text-sm" style={{ color: 'var(--text-muted)' }}>{t('admin.github.error')}</p>
-          <p className="text-xs mt-1" style={{ color: 'var(--text-faint)' }}>{error}</p>
-        </div>
-      </div>
-    )
-  }
-
   return (
     <div className="space-y-3">
-      {/* Header card */}
+      {/* Support cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <a
+          href="https://ko-fi.com/mauriceboe"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="rounded-xl border overflow-hidden flex items-center gap-4 px-5 py-4 transition-all"
+          style={{ background: 'var(--bg-card)', borderColor: 'var(--border-primary)', textDecoration: 'none' }}
+          onMouseEnter={e => { e.currentTarget.style.borderColor = '#ff5e5b'; e.currentTarget.style.boxShadow = '0 0 0 1px #ff5e5b22' }}
+          onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border-primary)'; e.currentTarget.style.boxShadow = 'none' }}
+        >
+          <div style={{ width: 40, height: 40, borderRadius: 10, background: '#ff5e5b15', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+            <Coffee size={20} style={{ color: '#ff5e5b' }} />
+          </div>
+          <div>
+            <div className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>Ko-fi</div>
+            <div className="text-xs" style={{ color: 'var(--text-faint)' }}>{language === 'de' ? 'Hilft mir, TREK weiterzuentwickeln' : 'Helps me keep building TREK'}</div>
+          </div>
+          <ExternalLink size={14} className="ml-auto flex-shrink-0" style={{ color: 'var(--text-faint)' }} />
+        </a>
+        <a
+          href="https://buymeacoffee.com/mauriceboe"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="rounded-xl border overflow-hidden flex items-center gap-4 px-5 py-4 transition-all"
+          style={{ background: 'var(--bg-card)', borderColor: 'var(--border-primary)', textDecoration: 'none' }}
+          onMouseEnter={e => { e.currentTarget.style.borderColor = '#ffdd00'; e.currentTarget.style.boxShadow = '0 0 0 1px #ffdd0022' }}
+          onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border-primary)'; e.currentTarget.style.boxShadow = 'none' }}
+        >
+          <div style={{ width: 40, height: 40, borderRadius: 10, background: '#ffdd0015', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+            <Heart size={20} style={{ color: '#ffdd00' }} />
+          </div>
+          <div>
+            <div className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>Buy Me a Coffee</div>
+            <div className="text-xs" style={{ color: 'var(--text-faint)' }}>{language === 'de' ? 'Hilft mir, TREK weiterzuentwickeln' : 'Helps me keep building TREK'}</div>
+          </div>
+          <ExternalLink size={14} className="ml-auto flex-shrink-0" style={{ color: 'var(--text-faint)' }} />
+        </a>
+      </div>
+
+      {/* Loading / Error / Releases */}
+      {loading ? (
+        <div className="rounded-xl border overflow-hidden" style={{ background: 'var(--bg-card)', borderColor: 'var(--border-primary)' }}>
+          <div className="p-8 flex items-center justify-center">
+            <Loader2 className="w-6 h-6 animate-spin" style={{ color: 'var(--text-muted)' }} />
+          </div>
+        </div>
+      ) : error ? (
+        <div className="rounded-xl border overflow-hidden" style={{ background: 'var(--bg-card)', borderColor: 'var(--border-primary)' }}>
+          <div className="p-6 text-center">
+            <p className="text-sm" style={{ color: 'var(--text-muted)' }}>{t('admin.github.error')}</p>
+            <p className="text-xs mt-1" style={{ color: 'var(--text-faint)' }}>{error}</p>
+          </div>
+        </div>
+      ) : (
       <div className="rounded-xl border overflow-hidden" style={{ background: 'var(--bg-card)', borderColor: 'var(--border-primary)' }}>
         <div className="px-5 py-4 border-b flex items-center justify-between" style={{ borderColor: 'var(--border-secondary)' }}>
           <div>
@@ -258,6 +291,7 @@ export default function GitHubPanel() {
           )}
         </div>
       </div>
+      )}
     </div>
   )
 }

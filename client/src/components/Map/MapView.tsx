@@ -182,6 +182,16 @@ function MapClickHandler({ onClick }: MapClickHandlerProps) {
   return null
 }
 
+function MapContextMenuHandler({ onContextMenu }: { onContextMenu: ((e: L.LeafletMouseEvent) => void) | null }) {
+  const map = useMap()
+  useEffect(() => {
+    if (!onContextMenu) return
+    map.on('contextmenu', onContextMenu)
+    return () => map.off('contextmenu', onContextMenu)
+  }, [map, onContextMenu])
+  return null
+}
+
 // ── Route travel time label ──
 interface RouteLabelProps {
   midpoint: [number, number]
@@ -234,6 +244,7 @@ function RouteLabel({ midpoint, walkingText, drivingText }: RouteLabelProps) {
 
 // Module-level photo cache shared with PlaceAvatar
 const mapPhotoCache = new Map()
+const mapPhotoInFlight = new Set()
 
 export function MapView({
   places = [],
@@ -243,6 +254,7 @@ export function MapView({
   selectedPlaceId = null,
   onMarkerClick,
   onMapClick,
+  onMapContextMenu = null,
   center = [48.8566, 2.3522],
   zoom = 10,
   tileUrl = 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',
@@ -264,23 +276,32 @@ export function MapView({
   }, [leftWidth, rightWidth, hasInspector])
   const [photoUrls, setPhotoUrls] = useState({})
 
-  // Fetch Google photos for places that have google_place_id but no image_url
+  // Fetch photos for places (Google or Wikimedia Commons fallback)
   useEffect(() => {
     places.forEach(place => {
-      if (place.image_url || !place.google_place_id) return
-      if (mapPhotoCache.has(place.google_place_id)) {
-        const cached = mapPhotoCache.get(place.google_place_id)
-        if (cached) setPhotoUrls(prev => ({ ...prev, [place.google_place_id]: cached }))
+      if (place.image_url) return
+      const cacheKey = place.google_place_id || place.osm_id || `${place.lat},${place.lng}`
+      if (!cacheKey) return
+      if (mapPhotoCache.has(cacheKey)) {
+        const cached = mapPhotoCache.get(cacheKey)
+        if (cached) setPhotoUrls(prev => prev[cacheKey] === cached ? prev : ({ ...prev, [cacheKey]: cached }))
         return
       }
-      mapsApi.placePhoto(place.google_place_id)
+      if (mapPhotoInFlight.has(cacheKey)) return
+      const photoId = place.google_place_id || place.osm_id
+      if (!photoId && !(place.lat && place.lng)) return
+      mapPhotoInFlight.add(cacheKey)
+      mapsApi.placePhoto(photoId || `coords:${place.lat}:${place.lng}`, place.lat, place.lng, place.name)
         .then(data => {
           if (data.photoUrl) {
-            mapPhotoCache.set(place.google_place_id, data.photoUrl)
-            setPhotoUrls(prev => ({ ...prev, [place.google_place_id]: data.photoUrl }))
+            mapPhotoCache.set(cacheKey, data.photoUrl)
+            setPhotoUrls(prev => ({ ...prev, [cacheKey]: data.photoUrl }))
+          } else {
+            mapPhotoCache.set(cacheKey, null)
           }
+          mapPhotoInFlight.delete(cacheKey)
         })
-        .catch(() => { mapPhotoCache.set(place.google_place_id, null) })
+        .catch(() => { mapPhotoCache.set(cacheKey, null); mapPhotoInFlight.delete(cacheKey) })
     })
   }, [places])
 
@@ -302,6 +323,7 @@ export function MapView({
       <BoundsController places={dayPlaces.length > 0 ? dayPlaces : places} fitKey={fitKey} paddingOpts={paddingOpts} />
       <SelectionController places={places} selectedPlaceId={selectedPlaceId} dayPlaces={dayPlaces} paddingOpts={paddingOpts} />
       <MapClickHandler onClick={onMapClick} />
+      <MapContextMenuHandler onContextMenu={onMapContextMenu} />
 
       <MarkerClusterGroup
         chunkedLoading
@@ -326,7 +348,8 @@ export function MapView({
       >
         {places.map((place) => {
           const isSelected = place.id === selectedPlaceId
-          const resolvedPhotoUrl = place.image_url || (place.google_place_id && photoUrls[place.google_place_id]) || null
+          const cacheKey = place.google_place_id || place.osm_id || `${place.lat},${place.lng}`
+          const resolvedPhotoUrl = place.image_url || (cacheKey && photoUrls[cacheKey]) || null
           const orderNumbers = dayOrderMap[place.id] ?? null
           const icon = createPlaceIcon({ ...place, image_url: resolvedPhotoUrl }, orderNumbers, isSelected)
 

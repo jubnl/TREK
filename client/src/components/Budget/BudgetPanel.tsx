@@ -7,6 +7,7 @@ import { Plus, Trash2, Calculator, Wallet, Pencil, Users, Check } from 'lucide-r
 import CustomSelect from '../shared/CustomSelect'
 import { budgetApi } from '../../api/client'
 import type { BudgetItem, BudgetMember } from '../../types'
+import { currencyDecimals } from '../../utils/formatters'
 
 interface TripMember {
   id: number
@@ -34,7 +35,8 @@ const PIE_COLORS = ['#6366f1', '#ec4899', '#f59e0b', '#10b981', '#3b82f6', '#8b5
 
 const fmtNum = (v, locale, cur) => {
   if (v == null || isNaN(v)) return '-'
-  return Number(v).toLocaleString(locale, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' ' + (SYMBOLS[cur] || cur)
+  const d = currencyDecimals(cur)
+  return Number(v).toLocaleString(locale, { minimumFractionDigits: d, maximumFractionDigits: d }) + ' ' + (SYMBOLS[cur] || cur)
 }
 
 const calcPP = (p, n) => (n > 0 ? p / n : null)
@@ -543,7 +545,7 @@ export default function BudgetPanel({ tripId, tripMembers = [] }: BudgetPanelPro
                               )}
                             </td>
                             <td style={{ ...td, textAlign: 'center' }}>
-                              <InlineEditCell value={item.total_price} type="number" onSave={v => handleUpdateField(item.id, 'total_price', v)} style={{ textAlign: 'center' }} placeholder="0,00" locale={locale} editTooltip={t('budget.editTooltip')} />
+                              <InlineEditCell value={item.total_price} type="number" decimals={currencyDecimals(currency)} onSave={v => handleUpdateField(item.id, 'total_price', v)} style={{ textAlign: 'center' }} placeholder={currencyDecimals(currency) === 0 ? '0' : '0,00'} locale={locale} editTooltip={t('budget.editTooltip')} />
                             </td>
                             <td className="hidden sm:table-cell" style={{ ...td, textAlign: 'center', position: 'relative' }}>
                               {hasMultipleMembers ? (
@@ -620,7 +622,7 @@ export default function BudgetPanel({ tripId, tripMembers = [] }: BudgetPanelPro
               </div>
             </div>
             <div style={{ fontSize: 28, fontWeight: 700, lineHeight: 1, marginBottom: 4 }}>
-              {Number(grandTotal).toLocaleString(locale, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              {Number(grandTotal).toLocaleString(locale, { minimumFractionDigits: currencyDecimals(currency), maximumFractionDigits: currencyDecimals(currency) })}
             </div>
             <div style={{ fontSize: 14, color: 'rgba(255,255,255,0.5)', fontWeight: 500 }}>{SYMBOLS[currency] || currency} {currency}</div>
             {hasMultipleMembers && (budgetItems || []).some(i => i.members?.length > 0) && (

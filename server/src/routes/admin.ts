@@ -94,7 +94,7 @@ router.put('/users/:id', (req: Request, res: Response) => {
 
 router.delete('/users/:id', (req: Request, res: Response) => {
   const authReq = req as AuthRequest;
-  if (parseInt(req.params.id) === authReq.user.id) {
+  if (parseInt(req.params.id as string) === authReq.user.id) {
     return res.status(400).json({ error: 'Cannot delete own account' });
   }
 
@@ -122,16 +122,18 @@ router.get('/oidc', (_req: Request, res: Response) => {
     client_id: get('oidc_client_id'),
     client_secret_set: !!secret,
     display_name: get('oidc_display_name'),
+    oidc_only: get('oidc_only') === 'true',
   });
 });
 
 router.put('/oidc', (req: Request, res: Response) => {
-  const { issuer, client_id, client_secret, display_name } = req.body;
+  const { issuer, client_id, client_secret, display_name, oidc_only } = req.body;
   const set = (key: string, val: string) => db.prepare("INSERT OR REPLACE INTO app_settings (key, value) VALUES (?, ?)").run(key, val || '');
   set('oidc_issuer', issuer);
   set('oidc_client_id', client_id);
   if (client_secret !== undefined) set('oidc_client_secret', client_secret);
   set('oidc_display_name', display_name);
+  set('oidc_only', oidc_only ? 'true' : 'false');
   res.json({ success: true });
 });
 
@@ -171,7 +173,7 @@ router.get('/version-check', async (_req: Request, res: Response) => {
   try {
     const resp = await fetch(
       'https://api.github.com/repos/mauriceboe/NOMAD/releases/latest',
-      { headers: { 'Accept': 'application/vnd.github.v3+json', 'User-Agent': 'NOMAD-Server' } }
+      { headers: { 'Accept': 'application/vnd.github.v3+json', 'User-Agent': 'TREK-Server' } }
     );
     if (!resp.ok) return res.json({ current: currentVersion, latest: currentVersion, update_available: false });
     const data = await resp.json() as { tag_name?: string; html_url?: string };

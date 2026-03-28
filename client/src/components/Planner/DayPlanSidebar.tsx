@@ -17,7 +17,7 @@ import { getCategoryIcon } from '../shared/categoryIcons'
 import { useTripStore } from '../../store/tripStore'
 import { useSettingsStore } from '../../store/settingsStore'
 import { useTranslation } from '../../i18n'
-import { formatDate, formatTime, dayTotalCost } from '../../utils/formatters'
+import { formatDate, formatTime, dayTotalCost, currencyDecimals } from '../../utils/formatters'
 import { useDayNotes } from '../../hooks/useDayNotes'
 import type { Trip, Day, Place, Category, Assignment, Reservation, AssignmentsMap, RouteResult } from '../../types'
 
@@ -491,13 +491,21 @@ export default function DayPlanSidebar({
                         <Pencil size={10} strokeWidth={1.8} color="var(--text-secondary)" />
                       </button>
                       {(() => {
-                        const acc = accommodations.find(a => day.id >= a.start_day_id && day.id <= a.end_day_id)
-                        return acc ? (
-                          <span onClick={e => { e.stopPropagation(); onPlaceClick(acc.place_id) }} style={{ display: 'inline-flex', alignItems: 'center', gap: 3, padding: '2px 7px', borderRadius: 5, background: 'var(--bg-secondary)', border: '1px solid var(--border-primary)', flexShrink: 1, minWidth: 0, maxWidth: '40%', cursor: 'pointer' }}>
-                            <Hotel size={8} style={{ color: 'var(--text-muted)', flexShrink: 0 }} />
-                            <span style={{ fontSize: 9, color: 'var(--text-muted)', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{acc.place_name}</span>
-                          </span>
-                        ) : null
+                        const dayAccs = accommodations.filter(a => day.id >= a.start_day_id && day.id <= a.end_day_id)
+                        if (dayAccs.length === 0) return null
+                        return dayAccs.map(acc => {
+                          const isCheckIn = acc.start_day_id === day.id
+                          const isCheckOut = acc.end_day_id === day.id
+                          const bg = isCheckOut && !isCheckIn ? 'rgba(239,68,68,0.08)' : isCheckIn ? 'rgba(34,197,94,0.08)' : 'var(--bg-secondary)'
+                          const border = isCheckOut && !isCheckIn ? 'rgba(239,68,68,0.2)' : isCheckIn ? 'rgba(34,197,94,0.2)' : 'var(--border-primary)'
+                          const iconColor = isCheckOut && !isCheckIn ? '#ef4444' : isCheckIn ? '#22c55e' : 'var(--text-muted)'
+                          return (
+                            <span key={acc.id} onClick={e => { e.stopPropagation(); onPlaceClick(acc.place_id) }} style={{ display: 'inline-flex', alignItems: 'center', gap: 3, padding: '2px 7px', borderRadius: 5, background: bg, border: `1px solid ${border}`, flexShrink: 1, minWidth: 0, maxWidth: '40%', cursor: 'pointer' }}>
+                              <Hotel size={8} style={{ color: iconColor, flexShrink: 0 }} />
+                              <span style={{ fontSize: 9, color: 'var(--text-muted)', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{acc.place_name}</span>
+                            </span>
+                          )
+                        })
                       })()}
                     </div>
                   )}
@@ -735,6 +743,14 @@ export default function DayPlanSidebar({
                                         {res.reservation_end_time && ` – ${res.reservation_end_time}`}
                                       </span>
                                     )}
+                                    {(() => {
+                                      const meta = typeof res.metadata === 'string' ? JSON.parse(res.metadata || '{}') : (res.metadata || {})
+                                      if (!meta) return null
+                                      if (meta.airline && meta.flight_number) return <span style={{ fontWeight: 400 }}>{meta.airline} {meta.flight_number}</span>
+                                      if (meta.flight_number) return <span style={{ fontWeight: 400 }}>{meta.flight_number}</span>
+                                      if (meta.train_number) return <span style={{ fontWeight: 400 }}>{meta.train_number}</span>
+                                      return null
+                                    })()}
                                   </div>
                                 )
                               })()}
@@ -979,7 +995,7 @@ export default function DayPlanSidebar({
       {totalCost > 0 && (
         <div style={{ flexShrink: 0, padding: '10px 16px', borderTop: '1px solid var(--border-faint)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <span style={{ fontSize: 11, color: 'var(--text-faint)' }}>{t('dayplan.totalCost')}</span>
-          <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>{totalCost.toFixed(2)} {currency}</span>
+          <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>{totalCost.toFixed(currencyDecimals(currency))} {currency}</span>
         </div>
       )}
       <ContextMenu menu={ctxMenu.menu} onClose={ctxMenu.close} />

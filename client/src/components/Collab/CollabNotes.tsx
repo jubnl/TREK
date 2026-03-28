@@ -1,7 +1,9 @@
 import ReactDOM from 'react-dom'
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import DOM from 'react-dom'
-import { Plus, Trash2, Pin, PinOff, Pencil, X, Check, StickyNote, Settings, ExternalLink } from 'lucide-react'
+import Markdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
+import { Plus, Trash2, Pin, PinOff, Pencil, X, Check, StickyNote, Settings, ExternalLink, Maximize2 } from 'lucide-react'
 import { collabApi } from '../../api/client'
 import { addListener, removeListener } from '../../api/websocket'
 import { useTranslation } from '../../i18n'
@@ -412,7 +414,7 @@ function NoteFormModal({ onClose, onSubmit, onDeleteFile, existingCategories, ca
                 outline: 'none',
                 boxSizing: 'border-box',
                 resize: 'vertical',
-                minHeight: 90,
+                minHeight: 180,
                 lineHeight: 1.5,
               }}
             />
@@ -690,13 +692,14 @@ interface NoteCardProps {
   onUpdate: (noteId: number, data: Partial<CollabNote>) => Promise<void>
   onDelete: (noteId: number) => Promise<void>
   onEdit: (note: CollabNote) => void
+  onView: (note: CollabNote) => void
   onPreviewFile: (file: NoteFile) => void
   getCategoryColor: (category: string) => string
   tripId: number
   t: (key: string) => string
 }
 
-function NoteCard({ note, currentUser, onUpdate, onDelete, onEdit, onPreviewFile, getCategoryColor, tripId, t }: NoteCardProps) {
+function NoteCard({ note, currentUser, onUpdate, onDelete, onEdit, onView, onPreviewFile, getCategoryColor, tripId, t }: NoteCardProps) {
   const [hovered, setHovered] = useState(false)
 
   const author = note.author || note.user || { username: note.username, avatar: note.avatar_url || (note.avatar ? `/uploads/avatars/${note.avatar}` : null) }
@@ -749,6 +752,14 @@ function NoteCard({ note, currentUser, onUpdate, onDelete, onEdit, onPreviewFile
           <div style={{
             display: 'flex', gap: 2,
           }}>
+            {note.content && (
+              <button onClick={() => onView?.(note)} title={t('collab.notes.expand') || 'Expand'}
+                style={{ padding: 3, background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-faint)', display: 'flex' }}
+                onMouseEnter={e => e.currentTarget.style.color = 'var(--text-primary)'}
+                onMouseLeave={e => e.currentTarget.style.color = 'var(--text-faint)'}>
+                <Maximize2 size={10} />
+              </button>
+            )}
             <button onClick={handleTogglePin} title={note.pinned ? t('collab.notes.unpin') : t('collab.notes.pin')}
               style={{ padding: 3, background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-faint)', display: 'flex' }}
               onMouseEnter={e => e.currentTarget.style.color = color}
@@ -799,13 +810,13 @@ function NoteCard({ note, currentUser, onUpdate, onDelete, onEdit, onPreviewFile
         <div style={{ display: 'flex', gap: 8 }}>
           <div style={{ flex: 1, minWidth: 0 }}>
             {note.content && (
-              <p style={{
+              <div className="collab-note-md" style={{
                 fontSize: 11.5, color: 'var(--text-muted)', lineHeight: 1.5, margin: 0,
-                display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical',
-                overflow: 'hidden', wordBreak: 'break-word', fontFamily: FONT,
+                maxHeight: '4.5em', overflow: 'hidden',
+                wordBreak: 'break-word', fontFamily: FONT,
               }}>
-                {note.content}
-              </p>
+                <Markdown remarkPlugins={[remarkGfm]}>{note.content}</Markdown>
+              </div>
             )}
           </div>
               {/* Right: website + attachment thumbnails */}
@@ -872,6 +883,7 @@ export default function CollabNotes({ tripId, currentUser }: CollabNotesProps) {
   const [loading, setLoading] = useState(true)
   const [showNewModal, setShowNewModal] = useState(false)
   const [editingNote, setEditingNote] = useState(null)
+  const [viewingNote, setViewingNote] = useState<CollabNote | null>(null)
   const [previewFile, setPreviewFile] = useState(null)
   const [showSettings, setShowSettings] = useState(false)
   const [activeCategory, setActiveCategory] = useState(null)
@@ -1243,6 +1255,7 @@ export default function CollabNotes({ tripId, currentUser }: CollabNotesProps) {
                 onUpdate={handleUpdateNote}
                 onDelete={handleDeleteNote}
                 onEdit={setEditingNote}
+                onView={setViewingNote}
                 onPreviewFile={setPreviewFile}
                 getCategoryColor={getCategoryColor}
                 tripId={tripId}
@@ -1254,6 +1267,64 @@ export default function CollabNotes({ tripId, currentUser }: CollabNotesProps) {
       </div>
 
       {/* ── New Note Modal ── */}
+      {/* View note modal */}
+      {viewingNote && ReactDOM.createPortal(
+        <div
+          style={{
+            position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)',
+            backdropFilter: 'blur(6px)', WebkitBackdropFilter: 'blur(6px)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            zIndex: 10000, padding: 16,
+          }}
+          onClick={() => setViewingNote(null)}
+        >
+          <div
+            style={{
+              background: 'var(--bg-card)', borderRadius: 16,
+              boxShadow: '0 20px 60px rgba(0,0,0,0.2)',
+              width: 'min(700px, calc(100vw - 32px))', maxHeight: '80vh',
+              overflow: 'hidden', display: 'flex', flexDirection: 'column',
+            }}
+            onClick={e => e.stopPropagation()}
+          >
+            <div style={{
+              padding: '16px 20px 12px', borderBottom: '1px solid var(--border-primary)',
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12,
+            }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 17, fontWeight: 600, color: 'var(--text-primary)' }}>{viewingNote.title}</div>
+                {viewingNote.category && (
+                  <span style={{
+                    display: 'inline-block', marginTop: 4, fontSize: 10, fontWeight: 600,
+                    color: getCategoryColor(viewingNote.category),
+                    background: `${getCategoryColor(viewingNote.category)}18`,
+                    padding: '2px 8px', borderRadius: 6,
+                  }}>{viewingNote.category}</span>
+                )}
+              </div>
+              <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
+                <button onClick={() => { setViewingNote(null); setEditingNote(viewingNote) }}
+                  style={{ padding: 6, background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-faint)', display: 'flex', borderRadius: 6 }}
+                  onMouseEnter={e => e.currentTarget.style.color = 'var(--text-primary)'}
+                  onMouseLeave={e => e.currentTarget.style.color = 'var(--text-faint)'}>
+                  <Pencil size={16} />
+                </button>
+                <button onClick={() => setViewingNote(null)}
+                  style={{ padding: 6, background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-faint)', display: 'flex', borderRadius: 6 }}
+                  onMouseEnter={e => e.currentTarget.style.color = 'var(--text-primary)'}
+                  onMouseLeave={e => e.currentTarget.style.color = 'var(--text-faint)'}>
+                  <X size={18} />
+                </button>
+              </div>
+            </div>
+            <div className="collab-note-md-full" style={{ padding: '16px 20px', overflowY: 'auto', fontSize: 14, color: 'var(--text-primary)', lineHeight: 1.7 }}>
+              <Markdown remarkPlugins={[remarkGfm]}>{viewingNote.content || ''}</Markdown>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
+
       {showNewModal && (
         <NoteFormModal
           onClose={() => setShowNewModal(false)}

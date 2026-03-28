@@ -12,6 +12,7 @@ interface AppConfig {
   demo_mode: boolean
   oidc_configured: boolean
   oidc_display_name?: string
+  oidc_only_mode: boolean
 }
 
 export default function LoginPage(): React.ReactElement {
@@ -125,7 +126,10 @@ export default function LoginPage(): React.ReactElement {
     }
   }
 
-  const showRegisterOption = appConfig?.allow_registration || !appConfig?.has_users
+  const showRegisterOption = (appConfig?.allow_registration || !appConfig?.has_users) && !appConfig?.oidc_only_mode
+
+  // In OIDC-only mode, show a minimal page that redirects directly to the IdP
+  const oidcOnly = appConfig?.oidc_only_mode && appConfig?.oidc_configured
 
   const inputBase: React.CSSProperties = {
     width: '100%', padding: '11px 12px 11px 40px', border: '1px solid #e5e7eb',
@@ -207,7 +211,7 @@ export default function LoginPage(): React.ReactElement {
           position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)',
           display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8,
         }}>
-          <img src="/logo-light.svg" alt="NOMAD" style={{ height: 72 }} />
+          <img src="/logo-light.svg" alt="TREK" style={{ height: 72 }} />
           <p style={{ margin: 0, fontSize: 20, color: 'rgba(255,255,255,0.6)', fontFamily: "'MuseoModerno', sans-serif", textTransform: 'lowercase', whiteSpace: 'nowrap' }}>{t('login.tagline')}</p>
         </div>
 
@@ -287,9 +291,14 @@ export default function LoginPage(): React.ReactElement {
   return (
     <div style={{ minHeight: '100vh', display: 'flex', fontFamily: "-apple-system, BlinkMacSystemFont, 'SF Pro Text', system-ui, sans-serif", position: 'relative' }}>
 
-      {/* Sprach-Toggle oben rechts */}
+      {/* Language toggle */}
       <button
-        onClick={() => setLanguageLocal(language === 'en' ? 'de' : 'en')}
+        onClick={() => {
+          const languages = ['en', 'es', 'de']
+          const currentIndex = languages.indexOf(language)
+          const nextLanguage = languages[(currentIndex + 1) % languages.length]
+          setLanguageLocal(nextLanguage)
+        }}
         style={{
           position: 'absolute', top: 16, right: 16, zIndex: 10,
           display: 'flex', alignItems: 'center', gap: 6,
@@ -303,7 +312,7 @@ export default function LoginPage(): React.ReactElement {
         onMouseLeave={(e: React.MouseEvent<HTMLButtonElement>) => e.currentTarget.style.background = 'rgba(0,0,0,0.06)'}
       >
         <Globe size={14} />
-        {language === 'en' ? 'EN' : 'DE'}
+        {language.toUpperCase()}
       </button>
 
       {/* Left — branding */}
@@ -405,7 +414,7 @@ export default function LoginPage(): React.ReactElement {
         <div style={{ position: 'relative', zIndex: 1, maxWidth: 560, textAlign: 'center' }}>
           {/* Logo */}
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 48 }}>
-            <img src="/logo-light.svg" alt="NOMAD" style={{ height: 64 }} />
+            <img src="/logo-light.svg" alt="TREK" style={{ height: 64 }} />
           </div>
 
           <h2 style={{ margin: '0 0 12px', fontSize: 36, fontWeight: 700, color: 'white', lineHeight: 1.15, letterSpacing: '-0.02em', fontFamily: "'MuseoModerno', sans-serif", textTransform: 'lowercase' }}>
@@ -450,11 +459,39 @@ export default function LoginPage(): React.ReactElement {
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, marginBottom: 36 }}
             className="mobile-logo">
             <style>{`@media(min-width:1024px){.mobile-logo{display:none!important}}`}</style>
-            <img src="/logo-dark.svg" alt="NOMAD" style={{ height: 48 }} />
+            <img src="/logo-dark.svg" alt="TREK" style={{ height: 48 }} />
             <p style={{ margin: 0, fontSize: 16, color: '#9ca3af', fontFamily: "'MuseoModerno', sans-serif", textTransform: 'lowercase', whiteSpace: 'nowrap' }}>{t('login.tagline')}</p>
           </div>
 
           <div style={{ background: 'white', borderRadius: 20, border: '1px solid #e5e7eb', padding: '36px 32px', boxShadow: '0 2px 16px rgba(0,0,0,0.06)' }}>
+            {oidcOnly ? (
+              <>
+                <h2 style={{ margin: '0 0 4px', fontSize: 22, fontWeight: 800, color: '#111827' }}>{t('login.title')}</h2>
+                <p style={{ margin: '0 0 24px', fontSize: 13.5, color: '#9ca3af' }}>{t('login.oidcOnly')}</p>
+                {error && (
+                  <div style={{ padding: '10px 14px', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 10, fontSize: 13, color: '#dc2626', marginBottom: 16 }}>
+                    {error}
+                  </div>
+                )}
+                <a href="/api/auth/oidc/login"
+                  style={{
+                    width: '100%', padding: '12px',
+                    background: '#111827', color: 'white',
+                    border: 'none', borderRadius: 12,
+                    fontSize: 14, fontWeight: 700, cursor: 'pointer',
+                    fontFamily: 'inherit', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+                    textDecoration: 'none', transition: 'all 0.15s',
+                    boxSizing: 'border-box',
+                  }}
+                  onMouseEnter={(e: React.MouseEvent<HTMLAnchorElement>) => { e.currentTarget.style.background = '#1f2937' }}
+                  onMouseLeave={(e: React.MouseEvent<HTMLAnchorElement>) => { e.currentTarget.style.background = '#111827' }}
+                >
+                  <Shield size={16} />
+                  {t('login.oidcSignIn', { name: appConfig?.oidc_display_name || 'SSO' })}
+                </a>
+              </>
+            ) : (
+            <>
             <h2 style={{ margin: '0 0 4px', fontSize: 22, fontWeight: 800, color: '#111827' }}>
               {mode === 'login' && mfaStep
                 ? t('login.mfaTitle')
@@ -586,10 +623,11 @@ export default function LoginPage(): React.ReactElement {
                 </button>
               </p>
             )}
+            </>)}
           </div>
 
-          {/* OIDC / SSO login button */}
-          {appConfig?.oidc_configured && (
+          {/* OIDC / SSO login button (only when OIDC is configured but not in oidc-only mode) */}
+          {appConfig?.oidc_configured && !oidcOnly && (
             <>
               <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 16 }}>
                 <div style={{ flex: 1, height: 1, background: '#e5e7eb' }} />

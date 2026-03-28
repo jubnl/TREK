@@ -20,23 +20,21 @@ function setSessionCache(key, value) {
   try { sessionStorage.setItem(key, JSON.stringify(value)) } catch {}
 }
 
-function useGoogleDetails(googlePlaceId, language) {
+function usePlaceDetails(googlePlaceId, osmId, language) {
   const [details, setDetails] = useState(null)
-  const cacheKey = `gdetails_${googlePlaceId}_${language}`
+  const detailId = googlePlaceId || osmId
+  const cacheKey = `gdetails_${detailId}_${language}`
   useEffect(() => {
-    if (!googlePlaceId) { setDetails(null); return }
-    // In-memory cache (fastest)
+    if (!detailId) { setDetails(null); return }
     if (detailsCache.has(cacheKey)) { setDetails(detailsCache.get(cacheKey)); return }
-    // sessionStorage cache (survives reload)
     const cached = getSessionCache(cacheKey)
     if (cached) { detailsCache.set(cacheKey, cached); setDetails(cached); return }
-    // Fetch from API
-    mapsApi.details(googlePlaceId, language).then(data => {
+    mapsApi.details(detailId, language).then(data => {
       detailsCache.set(cacheKey, data.place)
       setSessionCache(cacheKey, data.place)
       setDetails(data.place)
     }).catch(() => {})
-  }, [googlePlaceId, language])
+  }, [detailId, language])
   return details
 }
 
@@ -138,7 +136,7 @@ export default function PlaceInspector({
   const [nameValue, setNameValue] = useState('')
   const nameInputRef = useRef(null)
   const fileInputRef = useRef(null)
-  const googleDetails = useGoogleDetails(place?.google_place_id, language)
+  const googleDetails = usePlaceDetails(place?.google_place_id, place?.osm_id, language)
 
   const startNameEdit = () => {
     if (!onUpdatePlace) return
@@ -314,7 +312,7 @@ export default function PlaceInspector({
                   icon={<Star size={12} fill="#facc15" color="#facc15" />}
                   text={<>
                     {googleDetails.rating.toFixed(1)}
-                    {googleDetails.rating_count ? <span style={{ opacity: 0.5 }}> ({googleDetails.rating_count.toLocaleString('de-DE')})</span> : ''}
+                    {googleDetails.rating_count ? <span style={{ opacity: 0.5 }}> ({googleDetails.rating_count.toLocaleString(locale)})</span> : ''}
                     {shortReview && <span className="hidden md:inline" style={{ opacity: 0.6, fontWeight: 400, fontStyle: 'italic', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}> · „{shortReview.text}"</span>}
                   </>}
                   color="var(--text-secondary)" bg="var(--bg-hover)"
@@ -327,20 +325,20 @@ export default function PlaceInspector({
           </div>
 
           {/* Telefon */}
-          {place.phone && (
+          {(place.phone || googleDetails?.phone) && (
             <div style={{ display: 'flex', gap: 12 }}>
-              <a href={`tel:${place.phone}`}
+              <a href={`tel:${place.phone || googleDetails.phone}`}
                 style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12, color: 'var(--text-primary)', textDecoration: 'none' }}>
-                <Phone size={12} /> {place.phone}
+                <Phone size={12} /> {place.phone || googleDetails.phone}
               </a>
             </div>
           )}
 
-          {/* Description */}
-          {(place.description || place.notes) && (
+          {/* Description / Summary */}
+          {(place.description || place.notes || googleDetails?.summary) && (
             <div style={{ background: 'var(--bg-hover)', borderRadius: 10, overflow: 'hidden' }}>
               <p style={{ fontSize: 12, color: 'var(--text-muted)', margin: 0, lineHeight: '1.5', padding: '8px 12px' }}>
-                {place.description || place.notes}
+                {place.description || place.notes || googleDetails?.summary}
               </p>
             </div>
           )}
@@ -391,6 +389,20 @@ export default function PlaceInspector({
                         )}
                       </div>
                       {res.notes && <div style={{ padding: '0 10px 6px', fontSize: 10, color: 'var(--text-faint)', lineHeight: 1.4 }}>{res.notes}</div>}
+                      {(() => {
+                        const meta = typeof res.metadata === 'string' ? JSON.parse(res.metadata || '{}') : (res.metadata || {})
+                        if (!meta || Object.keys(meta).length === 0) return null
+                        const parts: string[] = []
+                        if (meta.airline && meta.flight_number) parts.push(`${meta.airline} ${meta.flight_number}`)
+                        else if (meta.flight_number) parts.push(meta.flight_number)
+                        if (meta.departure_airport && meta.arrival_airport) parts.push(`${meta.departure_airport} → ${meta.arrival_airport}`)
+                        if (meta.train_number) parts.push(meta.train_number)
+                        if (meta.platform) parts.push(`Gl. ${meta.platform}`)
+                        if (meta.check_in_time) parts.push(`Check-in ${meta.check_in_time}`)
+                        if (meta.check_out_time) parts.push(`Check-out ${meta.check_out_time}`)
+                        if (parts.length === 0) return null
+                        return <div style={{ padding: '0 10px 6px', fontSize: 10, color: 'var(--text-muted)', fontWeight: 500 }}>{parts.join(' · ')}</div>
+                      })()}
                     </div>
                   )
                 })()}
@@ -502,8 +514,12 @@ export default function PlaceInspector({
             <ActionButton onClick={() => window.open(googleDetails.google_maps_url, '_blank')} variant="ghost" icon={<Navigation size={13} />}
               label={<span className="hidden sm:inline">{t('inspector.google')}</span>} />
           )}
-          {place.website && (
-            <ActionButton onClick={() => window.open(place.website, '_blank')} variant="ghost" icon={<ExternalLink size={13} />}
+          {!googleDetails?.google_maps_url && place.lat && place.lng && (
+            <ActionButton onClick={() => window.open(`https://www.google.com/maps/search/?api=1&query=${place.lat},${place.lng}`, '_blank')} variant="ghost" icon={<Navigation size={13} />}
+              label={<span className="hidden sm:inline">Google Maps</span>} />
+          )}
+          {(place.website || googleDetails?.website) && (
+            <ActionButton onClick={() => window.open(place.website || googleDetails?.website, '_blank')} variant="ghost" icon={<ExternalLink size={13} />}
               label={<span className="hidden sm:inline">{t('inspector.website')}</span>} />
           )}
           <div style={{ flex: 1 }} />

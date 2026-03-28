@@ -8,7 +8,7 @@ import { weatherApi, accommodationsApi } from '../../api/client'
 import CustomSelect from '../shared/CustomSelect'
 import CustomTimePicker from '../shared/CustomTimePicker'
 import { useSettingsStore } from '../../store/settingsStore'
-import { useTranslation } from '../../i18n'
+import { getLocaleForLanguage, useTranslation } from '../../i18n'
 import type { Day, Place, Category, Reservation, AssignmentsMap } from '../../types'
 
 const WEATHER_ICON_MAP = {
@@ -53,7 +53,7 @@ interface DayDetailPanelProps {
 }
 
 export default function DayDetailPanel({ day, days, places, categories = [], tripId, assignments, reservations = [], lat, lng, onClose, onAccommodationChange }: DayDetailPanelProps) {
-  const { t, language } = useTranslation()
+  const { t, language, locale } = useTranslation()
   const isFahrenheit = useSettingsStore(s => s.settings.temperature_unit) === 'fahrenheit'
   const is12h = useSettingsStore(s => s.settings.time_format) === '12h'
   const fmtTime = (v) => formatTime12(v, is12h)
@@ -61,6 +61,7 @@ export default function DayDetailPanel({ day, days, places, categories = [], tri
   const [weather, setWeather] = useState(null)
   const [loading, setLoading] = useState(false)
   const [accommodation, setAccommodation] = useState(null)
+  const [dayAccommodations, setDayAccommodations] = useState<any[]>([])
   const [accommodations, setAccommodations] = useState([])
   const [showHotelPicker, setShowHotelPicker] = useState(false)
   const [hotelDayRange, setHotelDayRange] = useState({ start: day?.id, end: day?.id })
@@ -81,10 +82,11 @@ export default function DayDetailPanel({ day, days, places, categories = [], tri
     accommodationsApi.list(tripId)
       .then(data => {
         setAccommodations(data.accommodations || [])
-        const acc = (data.accommodations || []).find(a =>
+        const allForDay = (data.accommodations || []).filter(a =>
           days.some(d => d.id >= a.start_day_id && d.id <= a.end_day_id && d.id === day?.id)
         )
-        setAccommodation(acc || null)
+        setDayAccommodations(allForDay)
+        setAccommodation(allForDay[0] || null)
       })
       .catch(() => {})
   }, [tripId, day?.id])
@@ -136,7 +138,7 @@ export default function DayDetailPanel({ day, days, places, categories = [], tri
   if (!day) return null
 
   const formattedDate = day.date ? new Date(day.date + 'T00:00:00').toLocaleDateString(
-    language === 'de' ? 'de-DE' : 'en-US',
+    getLocaleForLanguage(language),
     { weekday: 'long', day: 'numeric', month: 'long' }
   ) : null
 
@@ -268,7 +270,7 @@ export default function DayDetailPanel({ day, days, places, categories = [], tri
                         </div>
                         {r.reservation_time?.includes('T') && (
                           <span style={{ fontSize: 10, color: 'var(--text-muted)', whiteSpace: 'nowrap', flexShrink: 0 }}>
-                            {new Date(r.reservation_time).toLocaleTimeString(language === 'de' ? 'de-DE' : 'en-US', { hour: '2-digit', minute: '2-digit', hour12: is12h })}
+                            {new Date(r.reservation_time).toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit', hour12: is12h })}
                             {r.reservation_end_time && ` – ${fmtTime(r.reservation_end_time)}`}
                           </span>
                         )}
@@ -287,57 +289,101 @@ export default function DayDetailPanel({ day, days, places, categories = [], tri
           <div>
             <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-faint)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8 }}>{t('day.accommodation')}</div>
 
-            {accommodation ? (
-              <div style={{ borderRadius: 12, background: 'var(--bg-secondary)', overflow: 'hidden' }}>
-                {/* Hotel header */}
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px' }}>
-                  <div style={{ width: 36, height: 36, borderRadius: 10, background: 'var(--bg-tertiary)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                    {accommodation.place_image ? (
-                      <img src={accommodation.place_image} style={{ width: '100%', height: '100%', borderRadius: 10, objectFit: 'cover' }} />
-                    ) : (
-                      <Hotel size={16} style={{ color: 'var(--text-muted)' }} />
-                    )}
-                  </div>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{accommodation.place_name}</div>
-                    {accommodation.place_address && <div style={{ fontSize: 10, color: 'var(--text-faint)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{accommodation.place_address}</div>}
-                  </div>
-                  <button onClick={handleRemoveAccommodation} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 3, flexShrink: 0 }}>
-                    <X size={12} style={{ color: 'var(--text-faint)' }} />
-                  </button>
-                </div>
-                {/* Details row */}
-                {/* Details grid */}
-                <div style={{ display: 'flex', gap: 0, margin: '0 12px 10px', borderRadius: 10, overflow: 'hidden', border: '1px solid var(--border-faint)' }}>
-                  {accommodation.check_in && (
-                    <div style={{ flex: 1, padding: '8px 10px', borderRight: '1px solid var(--border-faint)', textAlign: 'center' }}>
-                      <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-primary)', lineHeight: 1.2 }}>{fmtTime(accommodation.check_in)}</div>
-                      <div style={{ fontSize: 9, color: 'var(--text-faint)', fontWeight: 500, marginTop: 2, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 3 }}>
-                        <LogIn size={8} /> {t('day.checkIn')}
+            {dayAccommodations.length > 0 ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {dayAccommodations.map(acc => {
+                  const isCheckInDay = acc.start_day_id === day.id
+                  const isCheckOutDay = acc.end_day_id === day.id
+                  const isMiddleDay = !isCheckInDay && !isCheckOutDay
+                  const dayLabel = isCheckInDay && isCheckOutDay ? t('day.checkIn') + ' & ' + t('day.checkOut')
+                    : isCheckInDay ? t('day.checkIn')
+                    : isCheckOutDay ? t('day.checkOut')
+                    : null
+                  const linked = reservations.find(r => r.accommodation_id === acc.id)
+                  const confirmed = linked?.status === 'confirmed'
+
+                  return (
+                    <div key={acc.id} style={{ borderRadius: 12, background: 'var(--bg-secondary)', overflow: 'hidden' }}>
+                      {/* Day label */}
+                      {dayLabel && (
+                        <div style={{ padding: '4px 12px 0', display: 'flex', alignItems: 'center', gap: 4 }}>
+                          {isCheckInDay && <LogIn size={9} style={{ color: '#22c55e' }} />}
+                          {isCheckOutDay && !isCheckInDay && <LogOut size={9} style={{ color: '#ef4444' }} />}
+                          <span style={{ fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: isCheckOutDay && !isCheckInDay ? '#ef4444' : '#22c55e' }}>{dayLabel}</span>
+                        </div>
+                      )}
+                      {/* Hotel header */}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px' }}>
+                        <div style={{ width: 36, height: 36, borderRadius: 10, background: 'var(--bg-tertiary)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                          {acc.place_image ? (
+                            <img src={acc.place_image} style={{ width: '100%', height: '100%', borderRadius: 10, objectFit: 'cover' }} />
+                          ) : (
+                            <Hotel size={16} style={{ color: 'var(--text-muted)' }} />
+                          )}
+                        </div>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{acc.place_name}</div>
+                          {acc.place_address && <div style={{ fontSize: 10, color: 'var(--text-faint)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{acc.place_address}</div>}
+                        </div>
+                        <button onClick={() => { setAccommodation(acc); setHotelForm({ check_in: acc.check_in || '', check_out: acc.check_out || '', confirmation: acc.confirmation || '', place_id: acc.place_id }); setHotelDayRange({ start: acc.start_day_id, end: acc.end_day_id }); setShowHotelPicker('edit') }}
+                          style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 3, flexShrink: 0 }}>
+                          <Pencil size={12} style={{ color: 'var(--text-faint)' }} />
+                        </button>
+                        <button onClick={() => { setAccommodation(acc); handleRemoveAccommodation() }} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 3, flexShrink: 0 }}>
+                          <X size={12} style={{ color: 'var(--text-faint)' }} />
+                        </button>
                       </div>
-                    </div>
-                  )}
-                  {accommodation.check_out && (
-                    <div style={{ flex: 1, padding: '8px 10px', borderRight: accommodation.confirmation ? '1px solid var(--border-faint)' : 'none', textAlign: 'center' }}>
-                      <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-primary)', lineHeight: 1.2 }}>{fmtTime(accommodation.check_out)}</div>
-                      <div style={{ fontSize: 9, color: 'var(--text-faint)', fontWeight: 500, marginTop: 2, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 3 }}>
-                        <LogOut size={8} /> {t('day.checkOut')}
+                      {/* Details grid */}
+                      <div style={{ display: 'flex', gap: 0, margin: '0 12px 8px', borderRadius: 10, overflow: 'hidden', border: '1px solid var(--border-faint)' }}>
+                        {acc.check_in && (
+                          <div style={{ flex: 1, padding: '8px 10px', borderRight: '1px solid var(--border-faint)', textAlign: 'center' }}>
+                            <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-primary)', lineHeight: 1.2 }}>{fmtTime(acc.check_in)}</div>
+                            <div style={{ fontSize: 9, color: 'var(--text-faint)', fontWeight: 500, marginTop: 2, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 3 }}>
+                              <LogIn size={8} /> {t('day.checkIn')}
+                            </div>
+                          </div>
+                        )}
+                        {acc.check_out && (
+                          <div style={{ flex: 1, padding: '8px 10px', borderRight: acc.confirmation ? '1px solid var(--border-faint)' : 'none', textAlign: 'center' }}>
+                            <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-primary)', lineHeight: 1.2 }}>{fmtTime(acc.check_out)}</div>
+                            <div style={{ fontSize: 9, color: 'var(--text-faint)', fontWeight: 500, marginTop: 2, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 3 }}>
+                              <LogOut size={8} /> {t('day.checkOut')}
+                            </div>
+                          </div>
+                        )}
+                        {acc.confirmation && (
+                          <div style={{ flex: 1, padding: '8px 10px', textAlign: 'center' }}>
+                            <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-primary)', lineHeight: 1.2 }}>{acc.confirmation}</div>
+                            <div style={{ fontSize: 9, color: 'var(--text-faint)', fontWeight: 500, marginTop: 2, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 3 }}>
+                              <Hash size={8} /> {t('day.confirmation')}
+                            </div>
+                          </div>
+                        )}
                       </div>
+                      {/* Linked booking */}
+                      {linked && (
+                        <div style={{ margin: '0 12px 8px', padding: '6px 10px', borderRadius: 8, background: confirmed ? 'rgba(22,163,74,0.06)' : 'rgba(217,119,6,0.06)', border: `1px solid ${confirmed ? 'rgba(22,163,74,0.15)' : 'rgba(217,119,6,0.15)'}`, display: 'flex', alignItems: 'center', gap: 8 }}>
+                          <div style={{ width: 6, height: 6, borderRadius: '50%', background: confirmed ? '#16a34a' : '#d97706', flexShrink: 0 }} />
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{linked.title}</div>
+                            <div style={{ fontSize: 9, color: 'var(--text-faint)', display: 'flex', gap: 6, marginTop: 1 }}>
+                              <span>{confirmed ? t('reservations.confirmed') : t('reservations.pending')}</span>
+                              {linked.confirmation_number && <span>#{linked.confirmation_number}</span>}
+                            </div>
+                          </div>
+                        </div>
+                      )}
                     </div>
-                  )}
-                  {accommodation.confirmation && (
-                    <div style={{ flex: 1, padding: '8px 10px', textAlign: 'center' }}>
-                      <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-primary)', lineHeight: 1.2 }}>{accommodation.confirmation}</div>
-                      <div style={{ fontSize: 9, color: 'var(--text-faint)', fontWeight: 500, marginTop: 2, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 3 }}>
-                        <Hash size={8} /> {t('day.confirmation')}
-                      </div>
-                    </div>
-                  )}
-                  <button onClick={() => { setHotelForm({ check_in: accommodation.check_in || '', check_out: accommodation.check_out || '', confirmation: accommodation.confirmation || '', place_id: accommodation.place_id }); setHotelDayRange({ start: accommodation.start_day_id, end: accommodation.end_day_id }); setShowHotelPicker('edit') }}
-                    style={{ padding: '0 8px', background: 'none', border: 'none', borderLeft: '1px solid var(--border-faint)', cursor: 'pointer', display: 'flex', alignItems: 'center' }}>
-                    <Pencil size={10} style={{ color: 'var(--text-faint)' }} />
-                  </button>
-                </div>
+                  )
+                })}
+                {/* Add another hotel */}
+                <button onClick={() => setShowHotelPicker(true)} style={{
+                  width: '100%', padding: 8, border: '1.5px dashed var(--border-primary)', borderRadius: 10,
+                  background: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5,
+                  fontSize: 10, color: 'var(--text-faint)', fontFamily: 'inherit',
+                }}>
+                  <Hotel size={10} /> {t('day.addAccommodation')}
+                </button>
               </div>
             ) : (
               <button onClick={() => setShowHotelPicker(true)} style={{
@@ -377,7 +423,7 @@ export default function DayDetailPanel({ day, days, places, categories = [], tri
                           onChange={v => setHotelDayRange(prev => ({ start: v, end: Math.max(v, prev.end) }))}
                           options={days.map((d, i) => ({
                             value: d.id,
-                            label: `${d.title || t('planner.dayN', { n: i + 1 })}${d.date ? ` — ${new Date(d.date + 'T00:00:00').toLocaleDateString(language === 'de' ? 'de-DE' : 'en-US', { day: 'numeric', month: 'short' })}` : ''}`,
+                            label: `${d.title || t('planner.dayN', { n: i + 1 })}${d.date ? ` — ${new Date(d.date + 'T00:00:00').toLocaleDateString(locale, { day: 'numeric', month: 'short' })}` : ''}`,
                           }))}
                           size="sm"
                         />
@@ -389,7 +435,7 @@ export default function DayDetailPanel({ day, days, places, categories = [], tri
                           onChange={v => setHotelDayRange(prev => ({ start: Math.min(prev.start, v), end: v }))}
                           options={days.map((d, i) => ({
                             value: d.id,
-                            label: `${d.title || t('planner.dayN', { n: i + 1 })}${d.date ? ` — ${new Date(d.date + 'T00:00:00').toLocaleDateString(language === 'de' ? 'de-DE' : 'en-US', { day: 'numeric', month: 'short' })}` : ''}`,
+                            label: `${d.title || t('planner.dayN', { n: i + 1 })}${d.date ? ` — ${new Date(d.date + 'T00:00:00').toLocaleDateString(locale, { day: 'numeric', month: 'short' })}` : ''}`,
                           }))}
                           size="sm"
                         />

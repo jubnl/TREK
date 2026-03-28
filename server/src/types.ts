@@ -62,6 +62,7 @@ export interface Place {
   notes?: string | null;
   image_url?: string | null;
   google_place_id?: string | null;
+  osm_id?: string | null;
   website?: string | null;
   phone?: string | null;
   transport_mode?: string;
@@ -147,6 +148,8 @@ export interface Reservation {
   notes?: string | null;
   status: string;
   type: string;
+  accommodation_id?: number | null;
+  metadata?: string | null;
   created_at?: string;
   day_number?: number;
   place_name?: string;
@@ -158,11 +161,15 @@ export interface TripFile {
   place_id?: number | null;
   reservation_id?: number | null;
   note_id?: number | null;
+  uploaded_by?: number | null;
+  uploaded_by_name?: string | null;
   filename: string;
   original_name: string;
   file_size?: number | null;
   mime_type?: string | null;
   description?: string | null;
+  starred?: number;
+  deleted_at?: string | null;
   created_at?: string;
   reservation_title?: string;
   url?: string;

@@ -71,6 +71,13 @@ export default function SettingsPage(): React.ReactElement {
   const [currentPassword, setCurrentPassword] = useState<string>('')
   const [newPassword, setNewPassword] = useState<string>('')
   const [confirmPassword, setConfirmPassword] = useState<string>('')
+  const [oidcOnlyMode, setOidcOnlyMode] = useState<boolean>(false)
+
+  useEffect(() => {
+    authApi.getAppConfig?.().then((config) => {
+      if (config?.oidc_only_mode) setOidcOnlyMode(true)
+    }).catch(() => {})
+  }, [])
 
   const [mfaQr, setMfaQr] = useState<string | null>(null)
   const [mfaSecret, setMfaSecret] = useState<string | null>(null)
@@ -269,6 +276,7 @@ export default function SettingsPage(): React.ReactElement {
                 {[
                   { value: 'de', label: 'Deutsch' },
                   { value: 'en', label: 'English' },
+                  { value: 'es', label: 'Español' },
                 ].map(opt => (
                   <button
                     key={opt.value}
@@ -405,6 +413,7 @@ export default function SettingsPage(): React.ReactElement {
             </div>
 
             {/* Change Password */}
+            {!oidcOnlyMode && (
             <div style={{ paddingTop: 8, marginTop: 8, borderTop: '1px solid var(--border-secondary)' }}>
               <label className="block text-sm font-medium text-slate-700 mb-3">{t('settings.changePassword')}</label>
               <div className="space-y-3">
@@ -453,6 +462,7 @@ export default function SettingsPage(): React.ReactElement {
                 </button>
               </div>
             </div>
+            )}
 
             {/* MFA */}
             <div style={{ paddingTop: 8, marginTop: 8, borderTop: '1px solid var(--border-secondary)' }}>

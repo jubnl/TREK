@@ -66,9 +66,9 @@ export default defineConfig({
         ],
       },
       manifest: {
-        name: 'NOMAD \u2014 Travel Planner',
-        short_name: 'NOMAD',
-        description: 'Navigation Organizer for Maps, Activities & Destinations',
+        name: 'TREK \u2014 Travel Planner',
+        short_name: 'TREK',
+        description: 'Travel Resource & Exploration Kit',
         theme_color: '#111827',
         background_color: '#0f172a',
         display: 'standalone',

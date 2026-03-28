@@ -165,7 +165,7 @@ export async function downloadTripPDF({ trip, days, places, assignments, categor
 
           const chips = [
             place.place_time ? `<span class="chip">${svgClock}${escHtml(place.place_time)}</span>` : '',
-            place.price && parseFloat(place.price) > 0 ? `<span class="chip chip-green">${svgEuro}${Number(place.price).toLocaleString('de-DE')} EUR</span>` : '',
+            place.price && parseFloat(place.price) > 0 ? `<span class="chip chip-green">${svgEuro}${Number(place.price).toLocaleString(loc)} EUR</span>` : '',
           ].filter(Boolean).join('')
 
           return `
@@ -190,7 +190,7 @@ export async function downloadTripPDF({ trip, days, places, assignments, categor
       <div class="day-section${di > 0 ? ' page-break' : ''}">
         <div class="day-header">
           <span class="day-tag">${escHtml(tr('dayplan.dayN', { n: day.day_number })).toUpperCase()}</span>
-          <span class="day-title">${escHtml(day.title || `Tag ${day.day_number}`)}</span>
+          <span class="day-title">${escHtml(day.title || tr('dayplan.dayN', { n: day.day_number }))}</span>
           ${day.date ? `<span class="day-date">${shortDate(day.date, loc)}</span>` : ''}
           ${cost ? `<span class="day-cost">${cost}</span>` : ''}
         </div>
@@ -199,7 +199,7 @@ export async function downloadTripPDF({ trip, days, places, assignments, categor
   }).join('')
 
   const html = `<!DOCTYPE html>
-<html lang="de">
+<html lang="${loc.split('-')[0]}">
 <head>
 <meta charset="UTF-8">
 <base href="${window.location.origin}/">
@@ -377,7 +377,7 @@ export async function downloadTripPDF({ trip, days, places, assignments, categor
         <div class="cover-stat-lbl">${escHtml(tr('pdf.planned'))}</div>
       </div>
       ${totalCost > 0 ? `<div>
-        <div class="cover-stat-num">${totalCost.toLocaleString('de-DE')}</div>
+        <div class="cover-stat-num">${totalCost.toLocaleString(loc)}</div>
         <div class="cover-stat-lbl">${escHtml(tr('pdf.costLabel'))}</div>
       </div>` : ''}
     </div>

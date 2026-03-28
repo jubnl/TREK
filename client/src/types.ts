@@ -1,4 +1,4 @@
-// Shared types for the NOMAD travel planner
+// Shared types for the TREK travel planner
 
 export interface User {
   id: number
@@ -48,6 +48,7 @@ export interface Place {
   price: string | null
   image_url: string | null
   google_place_id: string | null
+  osm_id: string | null
   place_time: string | null
   end_time: string | null
   created_at: string
@@ -116,6 +117,7 @@ export interface Reservation {
   id: number
   trip_id: number
   name: string
+  title?: string
   type: string | null
   status: 'pending' | 'confirmed'
   date: string | null
@@ -123,17 +125,30 @@ export interface Reservation {
   confirmation_number: string | null
   notes: string | null
   url: string | null
+  accommodation_id?: number | null
+  metadata?: Record<string, string> | null
   created_at: string
 }
 
 export interface TripFile {
   id: number
   trip_id: number
+  place_id?: number | null
+  reservation_id?: number | null
+  note_id?: number | null
+  uploaded_by?: number | null
+  uploaded_by_name?: string | null
+  uploaded_by_avatar?: string | null
   filename: string
   original_name: string
+  file_size?: number | null
   mime_type: string
-  size: number
+  description?: string | null
+  starred?: number
+  deleted_at?: string | null
   created_at: string
+  reservation_title?: string
+  url?: string
 }
 
 export interface Settings {
