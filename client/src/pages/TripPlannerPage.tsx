@@ -590,6 +590,8 @@ export default function TripPlannerPage(): React.ReactElement | null {
                   } catch {}
                 }}
                 onUpdatePlace={async (placeId, data) => { try { await tripStore.updatePlace(tripId, placeId, data) } catch (err: unknown) { toast.error(err instanceof Error ? err.message : 'Unknown error') } }}
+                leftWidth={leftCollapsed ? 0 : leftWidth}
+                rightWidth={rightCollapsed ? 0 : rightWidth}
               />
             )}
 
