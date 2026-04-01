@@ -18,7 +18,7 @@ services:
     environment:
       - NODE_ENV=production
       - PORT=3000
-      - ENCRYPTION_KEY=${ENCRYPTION_KEY} # Required. Generate with: openssl rand -hex 32. Upgrading? Set this to the contents of ./data/.jwt_secret to keep existing encrypted secrets readable.
+      - ENCRYPTION_KEY=${ENCRYPTION_KEY:-} # Recommended. Generate with: openssl rand -hex 32. If unset, falls back to data/.jwt_secret (existing installs) or auto-generates a key (fresh installs).
       - TZ=${TZ:-UTC} # Timezone for logs, reminders and scheduled tasks (e.g. Europe/Berlin)
       - LOG_LEVEL=${LOG_LEVEL:-info} # info = concise user actions; debug = verbose admin-level details
       - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-} # Comma-separated origins for CORS and email notification links
