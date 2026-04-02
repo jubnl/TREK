@@ -138,7 +138,7 @@ router.get('/login', async (req: Request, res: Response) => {
       response_type: 'code',
       client_id: config.clientId,
       redirect_uri: redirectUri,
-      scope: 'openid email profile',
+      scope: process.env.OIDC_SCOPE || 'openid email profile groups',
       state,
     });
 

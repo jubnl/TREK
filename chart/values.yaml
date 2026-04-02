@@ -24,6 +24,8 @@ env:
   # Set to "false" to allow session cookies over plain HTTP (e.g. no ingress TLS). Not recommended for production.
   # OIDC_DISCOVERY_URL: ""
   # Override the OIDC discovery endpoint for providers with non-standard paths (e.g. Authentik).
+  # OIDC_SCOPE: "openid email profile groups"
+  # Space-separated OIDC scopes to request. Must include scopes for any claim used by OIDC_ADMIN_CLAIM.
 
 
 # Secret environment variables stored in a Kubernetes Secret.
