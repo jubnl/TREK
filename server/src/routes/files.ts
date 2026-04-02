@@ -29,7 +29,7 @@ const storage = multer.diskStorage({
   },
 });
 
-const DEFAULT_ALLOWED_EXTENSIONS = 'jpg,jpeg,png,gif,webp,heic,pdf,doc,docx,xls,xlsx,txt,csv';
+const DEFAULT_ALLOWED_EXTENSIONS = 'jpg,jpeg,png,gif,webp,heic,pdf,doc,docx,xls,xlsx,txt,csv,eml';
 const BLOCKED_EXTENSIONS = ['.svg', '.html', '.htm', '.xml'];
 
 function getAllowedExtensions(): string {
@@ -153,12 +153,31 @@ router.get('/', authenticate, (req: Request, res: Response) => {
     }
   }
 
+  // Get extraction status per file (show 'completed' if any job completed, else latest status)
+  interface ExtractionStatusRow { file_id: number; status: string; job_count: number }
+  const extractionRows = db.prepare(`
+    SELECT file_id,
+      CASE WHEN MAX(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) = 1 THEN 'completed'
+           WHEN MAX(CASE WHEN status = 'processing' THEN 1 ELSE 0 END) = 1 THEN 'processing'
+           WHEN MAX(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) = 1 THEN 'pending'
+           ELSE 'failed' END as status,
+      COUNT(*) as job_count
+    FROM extraction_jobs WHERE trip_id = ? GROUP BY file_id
+  `).all(tripId) as ExtractionStatusRow[];
+  const extractionMap: Record<number, { status: string; job_count: number }> = {};
+  for (const row of extractionRows) {
+    extractionMap[row.file_id] = { status: row.status, job_count: row.job_count };
+  }
+
   res.json({ files: files.map(f => {
     const fileLinks = linksMap[f.id] || [];
+    const ext = extractionMap[f.id];
     return {
       ...formatFile(f),
       linked_reservation_ids: fileLinks.filter(l => l.reservation_id).map(l => l.reservation_id),
       linked_place_ids: fileLinks.filter(l => l.place_id).map(l => l.place_id),
+      extraction_status: ext?.status ?? null,
+      extraction_job_count: ext?.job_count ?? 0,
     };
   })});
 });

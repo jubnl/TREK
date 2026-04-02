@@ -152,9 +152,28 @@ export interface Reservation {
   type: string;
   accommodation_id?: number | null;
   metadata?: string | null;
+  needs_review?: number;
   created_at?: string;
   day_number?: number;
   place_name?: string;
+}
+
+export interface ExtractionJob {
+  id: number;
+  trip_id: number;
+  file_id: number;
+  user_id: number;
+  status: 'pending' | 'processing' | 'completed' | 'failed';
+  provider: string;
+  model?: string | null;
+  error?: string | null;
+  result?: string | null;
+  reservations_created: number;
+  retry_count: number;
+  max_retries: number;
+  created_at?: string;
+  started_at?: string | null;
+  completed_at?: string | null;
 }
 
 export interface TripFile {

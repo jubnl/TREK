@@ -184,6 +184,9 @@ export const adminApi = {
   getPermissions: () => apiClient.get('/admin/permissions').then(r => r.data),
   updatePermissions: (permissions: Record<string, string>) => apiClient.put('/admin/permissions', { permissions }).then(r => r.data),
   rotateJwtSecret: () => apiClient.post('/admin/rotate-jwt-secret').then(r => r.data),
+  getLlmConfig: () => apiClient.get('/admin/llm-config').then(r => r.data),
+  updateLlmConfig: (data: Record<string, unknown>) => apiClient.put('/admin/llm-config', data).then(r => r.data),
+  fetchLlmModels: (data: { provider: string; apiKey?: string; baseUrl?: string }) => apiClient.post('/admin/llm-models', data).then(r => r.data),
 }
 
 export const addonsApi = {
@@ -214,6 +217,11 @@ export const filesApi = {
   upload: (tripId: number | string, formData: FormData) => apiClient.post(`/trips/${tripId}/files`, formData, {
     headers: { 'Content-Type': 'multipart/form-data' }
   }).then(r => r.data),
+  uploadWithProgress: (tripId: number | string, formData: FormData, onProgress: (pct: number) => void) =>
+    apiClient.post(`/trips/${tripId}/files`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+      onUploadProgress: (e) => { if (e.total) onProgress(Math.round((e.loaded / e.total) * 100)) },
+    }).then(r => r.data),
   update: (tripId: number | string, id: number, data: Record<string, unknown>) => apiClient.put(`/trips/${tripId}/files/${id}`, data).then(r => r.data),
   delete: (tripId: number | string, id: number) => apiClient.delete(`/trips/${tripId}/files/${id}`).then(r => r.data),
   toggleStar: (tripId: number | string, id: number) => apiClient.patch(`/trips/${tripId}/files/${id}/star`).then(r => r.data),
@@ -316,6 +324,23 @@ export const notificationsApi = {
   updatePreferences: (prefs: Record<string, boolean>) => apiClient.put('/notifications/preferences', prefs).then(r => r.data),
   testSmtp: (email?: string) => apiClient.post('/notifications/test-smtp', { email }).then(r => r.data),
   testWebhook: () => apiClient.post('/notifications/test-webhook').then(r => r.data),
+}
+
+export const extractionApi = {
+  extract: (tripId: number | string, fileId: number, cloudAcknowledged?: boolean) =>
+    apiClient.post('/integrations/llm-extract/extract', { tripId, fileId, cloud_acknowledged: cloudAcknowledged }).then(r => r.data),
+  getJobs: (tripId: number | string) =>
+    apiClient.get(`/integrations/llm-extract/jobs/${tripId}`).then(r => r.data),
+  getJob: (jobId: number) =>
+    apiClient.get(`/integrations/llm-extract/job/${jobId}`).then(r => r.data),
+  review: (reservationIds: number[], action: 'confirm' | 'reject', tripId?: number | string) =>
+    apiClient.post('/integrations/llm-extract/review', { reservationIds, action, tripId }).then(r => r.data),
+  getConfig: () =>
+    apiClient.get('/integrations/llm-extract/config').then(r => r.data),
+  updateConfig: (data: Record<string, unknown>) =>
+    apiClient.put('/integrations/llm-extract/config', data).then(r => r.data),
+  fetchModels: (data: { provider: string; apiKey?: string; baseUrl?: string }) =>
+    apiClient.post('/integrations/llm-extract/models', data).then(r => r.data),
 }
 
 export default apiClient

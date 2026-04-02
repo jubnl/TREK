@@ -491,6 +491,38 @@ function runMigrations(db: Database.Database): void {
         CREATE INDEX IF NOT EXISTS idx_trip_album_links_trip ON trip_album_links(trip_id);
       `);
     },
+    // Migration 57: add needs_review flag to reservations
+    () => db.exec('ALTER TABLE reservations ADD COLUMN needs_review INTEGER DEFAULT 0'),
+    // Migration 58: extraction_jobs table for LLM-powered reservation extraction
+    () => db.exec(`
+      CREATE TABLE IF NOT EXISTS extraction_jobs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        trip_id INTEGER NOT NULL REFERENCES trips(id) ON DELETE CASCADE,
+        file_id INTEGER NOT NULL REFERENCES trip_files(id) ON DELETE CASCADE,
+        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        status TEXT NOT NULL DEFAULT 'pending',
+        provider TEXT NOT NULL,
+        model TEXT,
+        error TEXT,
+        result TEXT,
+        reservations_created INTEGER DEFAULT 0,
+        retry_count INTEGER DEFAULT 0,
+        max_retries INTEGER DEFAULT 3,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        started_at DATETIME,
+        completed_at DATETIME
+      );
+      CREATE INDEX IF NOT EXISTS idx_extraction_jobs_status ON extraction_jobs(status);
+      CREATE INDEX IF NOT EXISTS idx_extraction_jobs_trip ON extraction_jobs(trip_id);
+      CREATE INDEX IF NOT EXISTS idx_extraction_jobs_user ON extraction_jobs(user_id);
+    `),
+    // Migration 59: register llm-extract addon
+    () => db.exec(`
+      INSERT OR IGNORE INTO addons (id, name, description, type, icon, enabled, config, sort_order)
+      VALUES ('llm-extract', 'AI Extraction', 'Extract reservation data from files using AI',
+              'integration', 'Sparkles', 0,
+              '{"max_retries":3,"timeout_seconds":120}', 13)
+    `),
   ];
 
   if (currentVersion < migrations.length) {
