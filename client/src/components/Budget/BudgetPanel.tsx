@@ -701,7 +701,7 @@ export default function BudgetPanel({ tripId, tripMembers = [] }: BudgetPanelPro
           })}
         </div>
 
-        <div className="w-full md:w-[180px]" style={{ flexShrink: 0, position: 'sticky', top: 16, alignSelf: 'flex-start' }}>
+        <div className="w-full md:w-[240px]" style={{ flexShrink: 0, position: 'sticky', top: 16, alignSelf: 'flex-start' }}>
           <div style={{ marginBottom: 12 }}>
             <CustomSelect
               value={currency}

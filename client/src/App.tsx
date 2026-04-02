@@ -79,7 +79,9 @@ export default function App() {
   const { loadSettings } = useSettingsStore()
 
   useEffect(() => {
-    loadUser()
+    if (!location.pathname.startsWith('/shared/')) {
+      loadUser()
+    }
     authApi.getAppConfig().then(async (config: { demo_mode?: boolean; has_maps_key?: boolean; version?: string; timezone?: string; require_mfa?: boolean; trip_reminders_enabled?: boolean; permissions?: Record<string, PermissionLevel> }) => {
       if (config?.demo_mode) setDemoMode(true)
       if (config?.has_maps_key !== undefined) setHasMapsKey(config.has_maps_key)

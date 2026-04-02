@@ -26,7 +26,7 @@ apiClient.interceptors.response.use(
   (response) => response,
   (error) => {
     if (error.response?.status === 401 && (error.response?.data as { code?: string } | undefined)?.code === 'AUTH_REQUIRED') {
-      if (!window.location.pathname.includes('/login') && !window.location.pathname.includes('/register')) {
+      if (!window.location.pathname.includes('/login') && !window.location.pathname.includes('/register') && !window.location.pathname.startsWith('/shared/')) {
         window.location.href = '/login'
       }
     }
