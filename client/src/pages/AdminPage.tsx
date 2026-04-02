@@ -16,6 +16,7 @@ import AddonManager from '../components/Admin/AddonManager'
 import PackingTemplateManager from '../components/Admin/PackingTemplateManager'
 import AuditLogPanel from '../components/Admin/AuditLogPanel'
 import AdminMcpTokensPanel from '../components/Admin/AdminMcpTokensPanel'
+import LlmConfigPanel from '../components/Admin/LlmConfigPanel'
 import PermissionsPanel from '../components/Admin/PermissionsPanel'
 import { Users, Map, Briefcase, Shield, Trash2, Edit2, Camera, FileText, Eye, EyeOff, Save, CheckCircle, XCircle, Loader2, UserPlus, ArrowUpCircle, ExternalLink, Download, GitBranch, Sun, Link2, Copy, Plus, RefreshCw, AlertTriangle } from 'lucide-react'
 import CustomSelect from '../components/shared/CustomSelect'
@@ -61,6 +62,7 @@ export default function AdminPage(): React.ReactElement {
   const { t, locale } = useTranslation()
   const hour12 = useSettingsStore(s => s.settings.time_format) === '12h'
   const mcpEnabled = useAddonStore(s => s.isEnabled('mcp'))
+  const llmExtractEnabled = useAddonStore(s => s.isEnabled('llm-extract'))
   const TABS = [
     { id: 'users', label: t('admin.tabs.users') },
     { id: 'config', label: t('admin.tabs.config') },
@@ -69,6 +71,7 @@ export default function AdminPage(): React.ReactElement {
     { id: 'backup', label: t('admin.tabs.backup') },
     { id: 'audit', label: t('admin.tabs.audit') },
     ...(mcpEnabled ? [{ id: 'mcp-tokens', label: t('admin.tabs.mcpTokens') }] : []),
+    ...(llmExtractEnabled ? [{ id: 'llm-config', label: t('admin.tabs.llmConfig') }] : []),
     { id: 'github', label: t('admin.tabs.github') },
   ]
 
@@ -1181,6 +1184,8 @@ export default function AdminPage(): React.ReactElement {
           {activeTab === 'audit' && <AuditLogPanel serverTimezone={serverTimezone} />}
 
           {activeTab === 'mcp-tokens' && <AdminMcpTokensPanel />}
+
+          {activeTab === 'llm-config' && <LlmConfigPanel />}
 
           {activeTab === 'github' && <GitHubPanel />}
         </div>

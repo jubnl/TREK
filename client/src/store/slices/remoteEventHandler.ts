@@ -214,6 +214,27 @@ export function handleRemoteEvent(set: SetState, event: WebSocketEvent): void {
         return {
           reservations: state.reservations.filter(r => r.id !== payload.reservationId),
         }
+      case 'reservation:bulk_created': {
+        const incoming = (payload.reservations as Reservation[]) || []
+        const existingIds = new Set(state.reservations.map(r => r.id))
+        const newOnes = incoming.filter(r => !existingIds.has(r.id))
+        return newOnes.length > 0 ? { reservations: [...newOnes, ...state.reservations] } : {}
+      }
+      case 'reservation:bulk_reviewed':
+        return {
+          reservations: state.reservations.map(r =>
+            (payload.reservationIds as number[]).includes(r.id) ? { ...r, needs_review: 0 } : r
+          ),
+        }
+      case 'reservation:bulk_deleted':
+        return {
+          reservations: state.reservations.filter(r => !(payload.reservationIds as number[]).includes(r.id)),
+        }
+      // AI extraction progress events — dispatched as DOM events for toast notifications
+      case 'extraction:complete':
+      case 'extraction:failed':
+        window.dispatchEvent(new CustomEvent(event.type as string, { detail: payload }))
+        return {}
 
       // Trip
       case 'trip:updated':

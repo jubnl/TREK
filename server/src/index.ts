@@ -66,6 +66,7 @@ app.use(helmet({
         "https://*.basemaps.cartocdn.com", "https://*.tile.openstreetmap.org",
         "https://unpkg.com", "https://open-meteo.com", "https://api.open-meteo.com",
         "https://geocoding-api.open-meteo.com", "https://api.exchangerate-api.com",
+        "https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_50m_admin_0_countries.geojson"
       ],
       fontSrc: ["'self'", "https://fonts.gstatic.com", "data:"],
       objectSrc: ["'none'"],
@@ -217,6 +218,8 @@ import atlasRoutes from './routes/atlas';
 app.use('/api/addons/atlas', atlasRoutes);
 import immichRoutes from './routes/immich';
 app.use('/api/integrations/immich', immichRoutes);
+import extractionRoutes from './routes/extraction';
+app.use('/api/integrations/llm-extract', extractionRoutes);
 
 app.use('/api/maps', mapsRoutes);
 app.use('/api/weather', weatherRoutes);
@@ -290,6 +293,8 @@ const server = app.listen(PORT, () => {
   scheduler.start();
   scheduler.startTripReminders();
   scheduler.startDemoReset();
+  const { getExtractionQueue } = require('./services/llm/queue');
+  getExtractionQueue().start();
   const { startTokenCleanup } = require('./services/ephemeralTokens');
   startTokenCleanup();
   import('./websocket').then(({ setupWebSocket }) => {
@@ -302,6 +307,8 @@ function shutdown(signal: string): void {
   const { logInfo: sLogInfo, logError: sLogError } = require('./services/auditLog');
   sLogInfo(`${signal} received — shutting down gracefully...`);
   scheduler.stop();
+  const { getExtractionQueue: getQueue } = require('./services/llm/queue');
+  getQueue().stop();
   closeMcpSessions();
   server.close(() => {
     sLogInfo('HTTP server closed');

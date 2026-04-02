@@ -6,8 +6,8 @@ import { SUPPORTED_LANGUAGES, useTranslation } from '../i18n'
 import Navbar from '../components/Layout/Navbar'
 import CustomSelect from '../components/shared/CustomSelect'
 import { useToast } from '../components/shared/Toast'
-import { Save, Map, Palette, User, Moon, Sun, Monitor, Shield, Camera, Trash2, Lock, KeyRound, AlertTriangle, Copy, Download, Printer, Terminal, Plus, Check } from 'lucide-react'
-import { authApi, adminApi } from '../api/client'
+import { Save, Map, Palette, User, Moon, Sun, Monitor, Shield, Camera, Trash2, Lock, KeyRound, AlertTriangle, Copy, Download, Printer, Terminal, Plus, Check, Sparkles, Eye, EyeOff, RefreshCw, Loader2 } from 'lucide-react'
+import { authApi, adminApi, extractionApi } from '../api/client'
 import apiClient from '../api/client'
 import { useAddonStore } from '../store/addonStore'
 import type { LucideIcon } from 'lucide-react'
@@ -124,6 +124,16 @@ export default function SettingsPage(): React.ReactElement {
   // Addon gating (derived from store)
   const memoriesEnabled = addonEnabled('memories')
   const mcpEnabled = addonEnabled('mcp')
+  const llmExtractEnabled = addonEnabled('llm-extract')
+  const [llmProvider, setLlmProvider] = useState<string>('')
+  const [llmModel, setLlmModel] = useState('')
+  const [llmApiKey, setLlmApiKey] = useState('')
+  const [llmBaseUrl, setLlmBaseUrl] = useState('')
+  const [llmApiKeySet, setLlmApiKeySet] = useState(false)
+  const [showLlmKey, setShowLlmKey] = useState(false)
+  const [llmSaving, setLlmSaving] = useState(false)
+  const [llmModels, setLlmModels] = useState<Array<{ id: string; name: string }>>([])
+  const [fetchingLlmModels, setFetchingLlmModels] = useState(false)
   const [immichUrl, setImmichUrl] = useState('')
   const [immichApiKey, setImmichApiKey] = useState('')
   const [immichConnected, setImmichConnected] = useState(false)
@@ -142,7 +152,60 @@ export default function SettingsPage(): React.ReactElement {
     }
   }, [memoriesEnabled])
 
+  useEffect(() => {
+    if (llmExtractEnabled) {
+      extractionApi.getConfig().then((d: { configured: boolean; provider?: string; model?: string; baseUrl?: string; hasApiKey?: boolean }) => {
+        const p = d.provider || ''
+        setLlmProvider(p)
+        setLlmModel(d.model || '')
+        setLlmBaseUrl(d.baseUrl || '')
+        setLlmApiKeySet(d.hasApiKey || false)
+        // Auto-fetch models if provider is set and key is stored
+        if (p && (p === 'ollama' || p === 'anthropic' || d.hasApiKey)) {
+          doFetchLlmModels(p, undefined, d.baseUrl || undefined)
+        }
+      }).catch(() => {})
+    }
+  }, [llmExtractEnabled])
+
+  const doFetchLlmModels = async (provider: string, apiKey?: string, baseUrl?: string) => {
+    if (!provider) return
+    setFetchingLlmModels(true)
+    setLlmModels([])
+    try {
+      const data = await extractionApi.fetchModels({ provider, apiKey, baseUrl }) as { models: Array<{ id: string; name: string }> }
+      setLlmModels(data.models)
+    } catch {
+      // silently fail — user can still type model name
+    } finally {
+      setFetchingLlmModels(false)
+    }
+  }
+
   const [immichTestPassed, setImmichTestPassed] = useState(false)
+
+  const handleSaveLlm = async () => {
+    setLlmSaving(true)
+    try {
+      await extractionApi.updateConfig({
+        provider: llmProvider || null,
+        model: llmModel || null,
+        apiKey: llmApiKey || undefined,
+        baseUrl: llmBaseUrl || null,
+      })
+      if (llmApiKey) {
+        setLlmApiKey('')
+        setLlmApiKeySet(true)
+        // Key just saved — now fetch models
+        if (llmModels.length === 0) doFetchLlmModels(llmProvider, undefined, llmBaseUrl || undefined)
+      }
+      toast.success(t('settings.llm.saved'))
+    } catch {
+      toast.error(t('settings.llm.saveError'))
+    } finally {
+      setLlmSaving(false)
+    }
+  }
 
   const handleSaveImmich = async () => {
     setSaving(s => ({ ...s, immich: true }))
@@ -786,6 +849,119 @@ export default function SettingsPage(): React.ReactElement {
                   ))}
                 </div>
               )}
+            </div>
+          </Section>}
+
+          {/* AI Extraction — only when llm-extract addon is enabled */}
+          {llmExtractEnabled && <Section title={t('settings.llm.title')} icon={Sparkles}>
+            <div className="space-y-4">
+              {(llmProvider === 'openai' || llmProvider === 'anthropic') && (
+                <div className="flex gap-3 rounded-lg border border-orange-200 bg-orange-50 p-3">
+                  <AlertTriangle className="w-4 h-4 text-orange-500 shrink-0 mt-0.5" />
+                  <p className="text-sm text-orange-700">{t('settings.llm.privacyWarning')}</p>
+                </div>
+              )}
+              {/* Provider */}
+              <div>
+                <label className="block text-sm font-medium mb-1.5" style={{ color: 'var(--text-secondary)' }}>{t('settings.llm.provider')}</label>
+                <select
+                  value={llmProvider}
+                  onChange={e => {
+                    const p = e.target.value
+                    setLlmProvider(p)
+                    setLlmModel('')
+                    setLlmModels([])
+                    if (p && (p === 'ollama' || p === 'anthropic' || llmApiKeySet)) {
+                      doFetchLlmModels(p, undefined, llmBaseUrl || undefined)
+                    }
+                  }}
+                  className="w-full rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  style={{ borderColor: 'var(--border-primary)', background: 'var(--bg-input)', color: 'var(--text-primary)' }}
+                >
+                  <option value="">{t('settings.llm.useAdminDefault')}</option>
+                  <option value="openai">OpenAI</option>
+                  <option value="anthropic">Anthropic</option>
+                  <option value="ollama">Ollama (local)</option>
+                </select>
+              </div>
+              {/* API Key — cloud providers */}
+              {(llmProvider === 'openai' || llmProvider === 'anthropic') && (
+                <div>
+                  <label className="block text-sm font-medium mb-1.5" style={{ color: 'var(--text-secondary)' }}>
+                    {t('settings.llm.apiKey')}
+                    {llmApiKeySet && !llmApiKey && <span className="ml-2 text-xs text-green-600">{t('settings.llm.keySet')}</span>}
+                  </label>
+                  <div className="flex gap-2">
+                    <div className="relative flex-1">
+                      <input type={showLlmKey ? 'text' : 'password'} value={llmApiKey} onChange={e => setLlmApiKey(e.target.value)}
+                        placeholder={llmApiKeySet ? t('settings.llm.keyPlaceholderUpdate') : t('settings.llm.keyPlaceholder')}
+                        className="w-full rounded-lg border px-3 py-2 pr-10 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        style={{ borderColor: 'var(--border-primary)', background: 'var(--bg-input)', color: 'var(--text-primary)' }} />
+                      <button type="button" onClick={() => setShowLlmKey(v => !v)}
+                        className="absolute right-2 top-1/2 -translate-y-1/2" style={{ color: 'var(--text-tertiary)' }}>
+                        {showLlmKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                      </button>
+                    </div>
+                    {(llmApiKey || llmApiKeySet) && (
+                      <button type="button"
+                        onClick={() => doFetchLlmModels(llmProvider, llmApiKey || undefined, undefined)}
+                        disabled={fetchingLlmModels}
+                        className="flex items-center gap-1.5 rounded-lg border px-3 py-2 text-sm disabled:opacity-50"
+                        style={{ borderColor: 'var(--border-primary)', color: 'var(--text-secondary)' }}>
+                        <RefreshCw className={`w-4 h-4 ${fetchingLlmModels ? 'animate-spin' : ''}`} />
+                        {t('admin.llm.fetchModels')}
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )}
+              {/* Base URL — Ollama */}
+              {llmProvider === 'ollama' && (
+                <div>
+                  <label className="block text-sm font-medium mb-1.5" style={{ color: 'var(--text-secondary)' }}>{t('settings.llm.baseUrl')}</label>
+                  <div className="flex gap-2">
+                    <input type="text" value={llmBaseUrl} onChange={e => setLlmBaseUrl(e.target.value)}
+                      placeholder="http://localhost:11434"
+                      className="flex-1 rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      style={{ borderColor: 'var(--border-primary)', background: 'var(--bg-input)', color: 'var(--text-primary)' }} />
+                    <button type="button"
+                      onClick={() => doFetchLlmModels(llmProvider, undefined, llmBaseUrl || undefined)}
+                      disabled={fetchingLlmModels}
+                      className="flex items-center gap-1.5 rounded-lg border px-3 py-2 text-sm disabled:opacity-50"
+                      style={{ borderColor: 'var(--border-primary)', color: 'var(--text-secondary)' }}>
+                      <RefreshCw className={`w-4 h-4 ${fetchingLlmModels ? 'animate-spin' : ''}`} />
+                      {t('admin.llm.fetchModels')}
+                    </button>
+                  </div>
+                </div>
+              )}
+              {/* Model — dynamic dropdown or text input */}
+              {llmProvider && (
+                <div>
+                  <label className="block text-sm font-medium mb-1.5" style={{ color: 'var(--text-secondary)' }}>
+                    {t('settings.llm.model')}
+                    {fetchingLlmModels && <Loader2 className="inline w-3.5 h-3.5 animate-spin ml-2" style={{ color: 'var(--text-tertiary)' }} />}
+                  </label>
+                  {llmModels.length > 0 ? (
+                    <select value={llmModel} onChange={e => setLlmModel(e.target.value)}
+                      className="w-full rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      style={{ borderColor: 'var(--border-primary)', background: 'var(--bg-input)', color: 'var(--text-primary)' }}>
+                      <option value="">{t('admin.llm.selectModel')}</option>
+                      {llmModels.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
+                    </select>
+                  ) : (
+                    <input type="text" value={llmModel} onChange={e => setLlmModel(e.target.value)}
+                      placeholder={t('settings.llm.modelPlaceholder')}
+                      className="w-full rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      style={{ borderColor: 'var(--border-primary)', background: 'var(--bg-input)', color: 'var(--text-primary)' }} />
+                  )}
+                </div>
+              )}
+              <button onClick={handleSaveLlm} disabled={llmSaving}
+                className="flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50">
+                {llmSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                {t('common.save')}
+              </button>
             </div>
           </Section>}
 

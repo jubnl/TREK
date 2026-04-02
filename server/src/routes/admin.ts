@@ -592,4 +592,116 @@ router.post('/rotate-jwt-secret', (req: Request, res: Response) => {
   res.json({ success: true });
 });
 
+// LLM config (for AI Extraction addon)
+router.get('/llm-config', (_req: Request, res: Response) => {
+  const get = (key: string) => (db.prepare('SELECT value FROM app_settings WHERE key = ?').get(key) as { value: string } | undefined)?.value ?? null;
+  const encryptedKey = get('llm_api_key');
+  res.json({
+    provider: get('llm_provider'),
+    model: get('llm_model'),
+    baseUrl: get('llm_base_url'),
+    apiKeySet: !!encryptedKey,
+  });
+});
+
+router.put('/llm-config', (req: Request, res: Response) => {
+  const authReq = req as AuthRequest;
+  const { provider, apiKey, model, baseUrl } = req.body;
+  const set = (key: string, val: string | null) => {
+    if (val === null || val === undefined || val === '') {
+      db.prepare('DELETE FROM app_settings WHERE key = ?').run(key);
+    } else {
+      db.prepare('INSERT OR REPLACE INTO app_settings (key, value) VALUES (?, ?)').run(key, val);
+    }
+  };
+  if (provider !== undefined) set('llm_provider', provider || null);
+  if (model !== undefined) set('llm_model', model || null);
+  if (baseUrl !== undefined) set('llm_base_url', baseUrl || null);
+  if (apiKey !== undefined && apiKey !== '') {
+    set('llm_api_key', maybe_encrypt_api_key(apiKey));
+  }
+  writeAudit({
+    userId: authReq.user.id,
+    action: 'admin.llm_config_update',
+    details: { provider, hasKey: !!apiKey },
+    ip: getClientIp(req),
+  });
+  res.json({ success: true });
+});
+
+// POST /api/admin/llm-models — fetch available models for a provider
+router.post('/llm-models', async (req: Request, res: Response) => {
+  const { provider, apiKey, baseUrl } = req.body;
+  if (!provider) return res.status(400).json({ error: 'provider is required' });
+
+  try {
+    // Use provided key, or fall back to stored admin key if provider matches
+    let resolvedKey = apiKey;
+    if (!resolvedKey) {
+      const storedProvider = (db.prepare("SELECT value FROM app_settings WHERE key = 'llm_provider'").get() as { value: string } | undefined)?.value;
+      if (storedProvider === provider) {
+        const storedKey = (db.prepare("SELECT value FROM app_settings WHERE key = 'llm_api_key'").get() as { value: string } | undefined)?.value;
+        if (storedKey) resolvedKey = decrypt_api_key(storedKey);
+      }
+    }
+
+    const models = await fetchLlmModels(provider, resolvedKey, baseUrl);
+    res.json({ models });
+  } catch (err) {
+    res.status(502).json({ error: `Failed to fetch models: ${(err as Error).message}` });
+  }
+});
+
 export default router;
+
+// --- LLM model fetching helpers ---
+
+const ANTHROPIC_MODELS = [
+  // Current models
+  { id: 'claude-opus-4-6', name: 'Claude Opus 4.6' },
+  { id: 'claude-sonnet-4-6', name: 'Claude Sonnet 4.6' },
+  { id: 'claude-haiku-4-5-20251001', name: 'Claude Haiku 4.5' },
+  // Legacy models
+  { id: 'claude-sonnet-4-5-20250929', name: 'Claude Sonnet 4.5' },
+  { id: 'claude-opus-4-5-20251101', name: 'Claude Opus 4.5' },
+  { id: 'claude-opus-4-1-20250805', name: 'Claude Opus 4.1' },
+  { id: 'claude-sonnet-4-20250514', name: 'Claude Sonnet 4' },
+  { id: 'claude-opus-4-20250514', name: 'Claude Opus 4' },
+  { id: 'claude-3-5-sonnet-20241022', name: 'Claude 3.5 Sonnet' },
+  { id: 'claude-3-5-haiku-20241022', name: 'Claude 3.5 Haiku' },
+  { id: 'claude-3-opus-20240229', name: 'Claude 3 Opus' },
+];
+
+async function fetchLlmModels(
+  provider: string,
+  apiKey: string | undefined,
+  baseUrl?: string
+): Promise<Array<{ id: string; name: string }>> {
+  switch (provider) {
+    case 'openai': {
+      if (!apiKey) throw new Error('API key required to list OpenAI models');
+      const OpenAI = (await import('openai')).default;
+      const client = new OpenAI({ apiKey });
+      const list = await client.models.list();
+      const models: Array<{ id: string; name: string }> = [];
+      for await (const m of list) {
+        if (m.id.startsWith('gpt-') || m.id.startsWith('o') || m.id.includes('chatgpt')) {
+          models.push({ id: m.id, name: m.id });
+        }
+      }
+      models.sort((a, b) => a.id.localeCompare(b.id));
+      return models;
+    }
+    case 'anthropic':
+      return ANTHROPIC_MODELS;
+    case 'ollama': {
+      const url = (baseUrl || 'http://localhost:11434').replace(/\/$/, '');
+      const resp = await fetch(`${url}/api/tags`);
+      if (!resp.ok) throw new Error(`Ollama returned ${resp.status}`);
+      const data = (await resp.json()) as { models?: Array<{ name: string }> };
+      return (data.models || []).map(m => ({ id: m.name, name: m.name }));
+    }
+    default:
+      return [];
+  }
+}

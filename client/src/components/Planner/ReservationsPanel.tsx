@@ -1,16 +1,19 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import ReactDOM from 'react-dom'
 import { useTripStore } from '../../store/tripStore'
 import { useCanDo } from '../../store/permissionsStore'
 import { useSettingsStore } from '../../store/settingsStore'
+import { useAddonStore } from '../../store/addonStore'
 import { useToast } from '../shared/Toast'
 import { useTranslation } from '../../i18n'
 import {
   Plane, Hotel, Utensils, Train, Car, Ship, Ticket, FileText, MapPin,
   Calendar, Hash, CheckCircle2, Circle, Pencil, Trash2, Plus, ChevronDown, ChevronRight, Users,
-  ExternalLink, BookMarked, Lightbulb, Link2, Clock,
+  ExternalLink, BookMarked, Lightbulb, Link2, Clock, Sparkles,
 } from 'lucide-react'
 import type { Reservation, Day, TripFile, AssignmentsMap } from '../../types'
+import ExtractionButton from './ExtractionButton'
+import ExtractionReviewModal from './ExtractionReviewModal'
 
 interface AssignmentLookupEntry {
   dayNumber: number
@@ -345,9 +348,37 @@ export default function ReservationsPanel({ tripId, reservations, days, assignme
   const can = useCanDo()
   const trip = useTripStore((s) => s.trip)
   const canEdit = can('reservation_edit', trip)
+  const llmEnabled = useAddonStore(s => s.isEnabled('llm-extract'))
   const [showHint, setShowHint] = useState(() => !localStorage.getItem('hideReservationHint'))
+  const [showExtractionModal, setShowExtractionModal] = useState(false)
+  const [showReviewModal, setShowReviewModal] = useState(false)
+  const [reviewReservations, setReviewReservations] = useState<Reservation[]>([])
+  // Files uploaded directly from the extraction modal (merged with prop files)
+  const [uploadedFiles, setUploadedFiles] = useState<TripFile[]>([])
 
   const assignmentLookup = useMemo(() => buildAssignmentLookup(days, assignments), [days, assignments])
+
+  // Listen for extraction WebSocket events dispatched as DOM events
+  useEffect(() => {
+    const onComplete = (e: Event) => {
+      const detail = (e as CustomEvent).detail as { count: number }
+      if (detail.count > 0) {
+        toast.success(t('extraction.completeToast', { count: detail.count }))
+      } else {
+        toast.success(t('extraction.completeNoResults'))
+      }
+    }
+    const onFailed = (e: Event) => {
+      const detail = (e as CustomEvent).detail as { error: string }
+      toast.error(t('extraction.failedToast', { error: detail.error }))
+    }
+    window.addEventListener('extraction:complete', onComplete)
+    window.addEventListener('extraction:failed', onFailed)
+    return () => {
+      window.removeEventListener('extraction:complete', onComplete)
+      window.removeEventListener('extraction:failed', onFailed)
+    }
+  }, [])
 
   const allPending = reservations.filter(r => r.status !== 'confirmed')
   const allConfirmed = reservations.filter(r => r.status === 'confirmed')
@@ -363,16 +394,45 @@ export default function ReservationsPanel({ tripId, reservations, days, assignme
             {total === 0 ? t('reservations.empty') : t('reservations.summary', { confirmed: allConfirmed.length, pending: allPending.length })}
           </p>
         </div>
-        {canEdit && (
-          <button onClick={onAdd} style={{
-            display: 'flex', alignItems: 'center', gap: 5, padding: '7px 14px', borderRadius: 99,
-            border: 'none', background: 'var(--accent)', color: 'var(--accent-text)',
-            fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
-          }}>
-            <Plus size={13} /> <span className="hidden sm:inline">{t('reservations.addManual')}</span>
-          </button>
-        )}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          {canEdit && llmEnabled && (
+            <button onClick={() => setShowExtractionModal(true)} style={{
+              display: 'flex', alignItems: 'center', gap: 5, padding: '7px 12px', borderRadius: 99,
+              border: '1px solid var(--border-primary)', background: 'var(--bg-card)', color: 'var(--text-secondary)',
+              fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
+            }}>
+              <Sparkles size={13} /> <span className="hidden sm:inline">{t('extraction.extractButton')}</span>
+            </button>
+          )}
+          {canEdit && (
+            <button onClick={onAdd} style={{
+              display: 'flex', alignItems: 'center', gap: 5, padding: '7px 14px', borderRadius: 99,
+              border: 'none', background: 'var(--accent)', color: 'var(--accent-text)',
+              fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
+            }}>
+              <Plus size={13} /> <span className="hidden sm:inline">{t('reservations.addManual')}</span>
+            </button>
+          )}
+        </div>
       </div>
+
+      {/* Review banner for AI-extracted reservations pending review */}
+      {(() => {
+        const needsReview = reservations.filter(r => r.needs_review)
+        if (!needsReview.length) return null
+        return (
+          <div style={{ padding: '10px 24px', background: 'var(--bg-purple, #f5f3ff)', borderBottom: '1px solid var(--border-faint)', display: 'flex', alignItems: 'center', gap: 8 }}>
+            <Sparkles size={14} style={{ color: '#7c3aed' }} />
+            <span style={{ fontSize: 12, color: '#6d28d9', fontWeight: 600 }}>
+              {t('extraction.reviewBanner', { count: needsReview.length })}
+            </span>
+            <button onClick={() => { setReviewReservations(needsReview); setShowReviewModal(true) }}
+              style={{ marginLeft: 'auto', fontSize: 11, fontWeight: 600, color: '#7c3aed', background: 'none', border: '1px solid #7c3aed', borderRadius: 6, padding: '3px 10px', cursor: 'pointer' }}>
+              {t('extraction.reviewNow')}
+            </button>
+          </div>
+        )
+      })()}
 
       {/* Content */}
       <div style={{ flex: 1, overflowY: 'auto', padding: '16px 24px' }}>
@@ -401,6 +461,26 @@ export default function ReservationsPanel({ tripId, reservations, days, assignme
           </>
         )}
       </div>
+
+      {/* Extraction modal */}
+      {showExtractionModal && (
+        <ExtractionButton
+          tripId={tripId}
+          files={[...files, ...uploadedFiles]}
+          onJobStarted={() => setShowExtractionModal(false)}
+          onFileUploaded={f => setUploadedFiles(prev => [...prev, f])}
+          onClose={() => setShowExtractionModal(false)}
+        />
+      )}
+
+      {/* Review modal */}
+      {showReviewModal && reviewReservations.length > 0 && (
+        <ExtractionReviewModal
+          tripId={tripId}
+          reservations={reviewReservations}
+          onClose={() => setShowReviewModal(false)}
+        />
+      )}
     </div>
   )
 }

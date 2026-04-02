@@ -109,6 +109,12 @@ const ACTION_LABELS: Record<string, string> = {
   'admin.user_delete': 'deleted user',
   'admin.invite_create': 'created invite',
   'immich.private_ip_configured': 'configured Immich with private IP',
+  'extraction.start': 'started AI extraction',
+  'extraction.complete': 'completed AI extraction',
+  'extraction.failed': 'AI extraction failed',
+  'extraction.user_config_update': 'updated AI extraction config',
+  'extraction.cloud_key_added': 'added cloud LLM API key',
+  'admin.llm_config_update': 'updated admin LLM config',
 };
 
 /** Best-effort; never throws — failures are logged only. */

@@ -1,13 +1,15 @@
 import ReactDOM from 'react-dom'
 import { useState, useCallback, useRef, useEffect } from 'react'
 import { useDropzone } from 'react-dropzone'
-import { Upload, Trash2, ExternalLink, X, FileText, FileImage, File, MapPin, Ticket, StickyNote, Star, RotateCcw, Pencil, Check } from 'lucide-react'
+import { Upload, Trash2, ExternalLink, X, FileText, FileImage, File, MapPin, Ticket, StickyNote, Star, RotateCcw, Pencil, Check, Sparkles } from 'lucide-react'
 import { useToast } from '../shared/Toast'
 import { useTranslation } from '../../i18n'
 import { filesApi } from '../../api/client'
 import type { Place, Reservation, TripFile, Day, AssignmentsMap } from '../../types'
 import { useCanDo } from '../../store/permissionsStore'
 import { useTripStore } from '../../store/tripStore'
+import { useAddonStore } from '../../store/addonStore'
+import ExtractionButton from '../Planner/ExtractionButton'
 
 import { getAuthUrl } from '../../api/authUrl'
 
@@ -173,9 +175,13 @@ export default function FileManager({ files = [], onUpload, onDelete, onUpdate, 
   const [showTrash, setShowTrash] = useState(false)
   const [trashFiles, setTrashFiles] = useState<TripFile[]>([])
   const [loadingTrash, setLoadingTrash] = useState(false)
+  const [extractingFileId, setExtractingFileId] = useState<number | null>(null)
+  const [reExtractWarningFileId, setReExtractWarningFileId] = useState<number | null>(null)
+  const [extractedFileIds, setExtractedFileIds] = useState<Set<number>>(new Set())
   const toast = useToast()
   const can = useCanDo()
   const trip = useTripStore((s) => s.trip)
+  const llmEnabled = useAddonStore(s => s.isEnabled('llm-extract'))
   const { t, locale } = useTranslation()
 
   const loadTrash = useCallback(async () => {
@@ -195,6 +201,31 @@ export default function FileManager({ files = [], onUpload, onDelete, onUpdate, 
   const refreshFiles = useCallback(async () => {
     if (onUpdate) onUpdate(0, {} as any)
   }, [onUpdate])
+
+  // Listen for extraction completion to update the badge without a full page refresh
+  useEffect(() => {
+    const onComplete = (e: Event) => {
+      const detail = (e as CustomEvent).detail as { jobId: number; count: number; tripId: number }
+      // Find which file triggered this job and mark it extracted
+      if (detail.count > 0) {
+        toast.success(t('extraction.completeToast', { count: detail.count }))
+      } else {
+        toast.success(t('extraction.completeNoResults'))
+      }
+      // Refresh file list so extraction_status badge updates
+      refreshFiles()
+    }
+    const onFailed = (e: Event) => {
+      const detail = (e as CustomEvent).detail as { error: string }
+      toast.error(t('extraction.failedToast', { error: detail.error }))
+    }
+    window.addEventListener('extraction:complete', onComplete)
+    window.addEventListener('extraction:failed', onFailed)
+    return () => {
+      window.removeEventListener('extraction:complete', onComplete)
+      window.removeEventListener('extraction:failed', onFailed)
+    }
+  }, [refreshFiles])
 
   const handleStar = async (fileId: number) => {
     try {
@@ -409,6 +440,17 @@ export default function FileManager({ files = [], onUpload, onDelete, onUpdate, 
             {file.note_id && (
               <SourceBadge icon={StickyNote} label={t('files.sourceCollab') || 'Collab Notes'} />
             )}
+            {!isTrash && (file.extraction_status === 'completed' || extractedFileIds.has(file.id)) && (
+              <span style={{
+                display: 'inline-flex', alignItems: 'center', gap: 4,
+                fontSize: 10.5, color: '#7c3aed',
+                background: '#7c3aed18', border: '1px solid #7c3aed30',
+                borderRadius: 6, padding: '2px 7px', fontWeight: 500,
+              }}>
+                <Sparkles size={10} style={{ flexShrink: 0 }} />
+                {t('files.extracted')}
+              </span>
+            )}
           </div>
         </div>
 
@@ -427,6 +469,23 @@ export default function FileManager({ files = [], onUpload, onDelete, onUpdate, 
             </>
           ) : (
             <>
+              {llmEnabled && can('reservation_edit', trip) && (
+                <button
+                  onClick={() => {
+                    if (file.extraction_status === 'completed' || extractedFileIds.has(file.id)) {
+                      setReExtractWarningFileId(file.id)
+                    } else {
+                      setExtractingFileId(file.id)
+                    }
+                  }}
+                  title={t('files.extractAI')}
+                  style={{ padding: 6, background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-faint)', borderRadius: 6, display: 'flex' }}
+                  onMouseEnter={e => e.currentTarget.style.color = '#7c3aed'}
+                  onMouseLeave={e => e.currentTarget.style.color = 'var(--text-faint)'}
+                >
+                  <Sparkles size={14} />
+                </button>
+              )}
               <button onClick={() => handleStar(file.id)} title={file.starred ? t('files.unstar') || 'Unstar' : t('files.star') || 'Star'} style={{ padding: 6, background: 'none', border: 'none', cursor: 'pointer', color: file.starred ? '#facc15' : 'var(--text-faint)', borderRadius: 6, display: 'flex' }}
                 onMouseEnter={e => { if (!file.starred) e.currentTarget.style.color = '#facc15' }} onMouseLeave={e => { if (!file.starred) e.currentTarget.style.color = 'var(--text-faint)' }}>
                 <Star size={14} fill={file.starred ? '#facc15' : 'none'} />
@@ -808,6 +867,63 @@ export default function FileManager({ files = [], onUpload, onDelete, onUpdate, 
           .file-actions svg { width: 18px !important; height: 18px !important; }
         }
       `}</style>
+
+      {/* Extraction modal (per-file extract button) */}
+      {extractingFileId !== null && (
+        <ExtractionButton
+          tripId={tripId}
+          files={files}
+          preselectedFileId={extractingFileId}
+          onJobStarted={() => {
+            setExtractedFileIds(prev => new Set(prev).add(extractingFileId))
+            setExtractingFileId(null)
+            toast.success(t('extraction.started'))
+          }}
+          onClose={() => setExtractingFileId(null)}
+        />
+      )}
+
+      {/* Re-extraction warning */}
+      {reExtractWarningFileId !== null && ReactDOM.createPortal(
+        <div
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 6000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
+          onClick={() => setReExtractWarningFileId(null)}
+        >
+          <div
+            style={{ background: 'var(--bg-card)', borderRadius: 16, boxShadow: '0 20px 60px rgba(0,0,0,0.2)', width: 'min(420px, calc(100vw - 32px))', padding: '20px 24px' }}
+            onClick={e => e.stopPropagation()}
+          >
+            <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, marginBottom: 16 }}>
+              <div style={{ flexShrink: 0, width: 36, height: 36, borderRadius: 10, background: '#fef3c7', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <Sparkles size={18} style={{ color: '#d97706' }} />
+              </div>
+              <div>
+                <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 4 }}>{t('files.extractAI')}</div>
+                <p style={{ fontSize: 13, color: 'var(--text-secondary)', margin: 0, lineHeight: 1.5 }}>{t('files.reExtractWarning')}</p>
+              </div>
+            </div>
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+              <button
+                onClick={() => setReExtractWarningFileId(null)}
+                style={{ padding: '7px 16px', borderRadius: 8, border: '1px solid var(--border-primary)', background: 'none', color: 'var(--text-secondary)', fontSize: 13, cursor: 'pointer', fontFamily: 'inherit' }}
+              >
+                {t('common.cancel')}
+              </button>
+              <button
+                onClick={() => {
+                  const fid = reExtractWarningFileId
+                  setReExtractWarningFileId(null)
+                  setExtractingFileId(fid)
+                }}
+                style={{ padding: '7px 16px', borderRadius: 8, border: 'none', background: '#7c3aed', color: '#fff', fontSize: 13, fontWeight: 500, cursor: 'pointer', fontFamily: 'inherit' }}
+              >
+                {t('files.reExtractConfirm')}
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
     </div>
   )
 }
