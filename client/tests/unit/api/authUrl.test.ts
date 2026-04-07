@@ -9,12 +9,18 @@ const flushPromises = () => new Promise<void>(r => setTimeout(r, 10));
 beforeEach(() => {
   clearImageQueue();
   vi.restoreAllMocks(); // restore any vi.spyOn() wrappers from the previous test
+  vi.unstubAllGlobals(); // restore any vi.stubGlobal() replacements from the previous test
 
-  // jsdom's URL.createObjectURL returns '' and may be non-configurable, so
-  // Object.defineProperty in setup.ts can fail silently on CI. Assign directly
-  // here (after restoreAllMocks) so every test in this file gets a fresh mock.
-  URL.createObjectURL = vi.fn(() => 'blob:mock') as typeof URL.createObjectURL;
-  URL.revokeObjectURL = vi.fn() as typeof URL.revokeObjectURL;
+  // jsdom's URL.createObjectURL is non-writable/non-configurable in some CI
+  // environments — direct assignment and Object.defineProperty both fail
+  // silently. vi.stubGlobal replaces globalThis.URL entirely, which always
+  // works. We extend the real URL so all URL parsing behaviour is preserved.
+  const OriginalURL = URL;
+  class TestURL extends OriginalURL {
+    static createObjectURL = vi.fn(() => 'blob:mock');
+    static revokeObjectURL = vi.fn();
+  }
+  vi.stubGlobal('URL', TestURL);
 });
 
 // ── getAuthUrl ─────────────────────────────────────────────────────────────────
