@@ -84,8 +84,8 @@ describe('DayDetailPanel', () => {
     render(<DayDetailPanel {...defaultProps} onClose={onClose} />);
     // The header X button — the one outside the hotel picker
     const closeButtons = screen.getAllByRole('button');
-    // First X button is the header close
-    await userEvent.click(closeButtons[0]);
+    // Second button is the header X close (first is collapse toggle)
+    await userEvent.click(closeButtons[1]);
     expect(onClose).toHaveBeenCalled();
   });
 
@@ -320,8 +320,8 @@ describe('DayDetailPanel', () => {
     await screen.findByText('Budget Inn');
     // No edit/remove buttons — only close button in header
     const buttons = screen.getAllByRole('button');
-    // Should only have the header close button, no pencil/X in accommodation
-    expect(buttons).toHaveLength(1);
+    // Should only have the header collapse + close buttons, no pencil/X in accommodation
+    expect(buttons).toHaveLength(2);
   });
 
   // ── Adding accommodation ──────────────────────────────────────────────────────
@@ -500,10 +500,10 @@ describe('DayDetailPanel', () => {
     seedStore(useAuthStore, { user: buildAdmin(), isAuthenticated: true });
     render(<DayDetailPanel {...defaultProps} />);
     await screen.findByText('Edit Hotel');
-    // All buttons: header close, pencil, X (remove)
+    // All buttons: header collapse (0), header close (1), pencil (2), X/remove (3)
     const allButtons = screen.getAllByRole('button');
-    // Pencil is second button (index 1)
-    const pencilButton = allButtons[1];
+    // Pencil is third button (index 2)
+    const pencilButton = allButtons[2];
     await userEvent.click(pencilButton);
     // Edit picker should open with "Edit accommodation" title
     await waitFor(() => {
@@ -684,9 +684,9 @@ describe('DayDetailPanel', () => {
     seedStore(useAuthStore, { user: buildAdmin(), isAuthenticated: true });
     render(<DayDetailPanel {...defaultProps} />);
     await screen.findByText('Hotel To Remove');
-    // Buttons: close header (0), pencil (1), X/remove (2)
+    // Buttons: collapse (0), close header (1), pencil (2), X/remove (3)
     const allButtons = screen.getAllByRole('button');
-    const removeButton = allButtons[2];
+    const removeButton = allButtons[3];
     await userEvent.click(removeButton);
     await waitFor(() => {
       expect(deleteWasCalled).toBe(true);
@@ -774,9 +774,9 @@ describe('DayDetailPanel', () => {
     const place = buildPlace({ id: 5, name: 'Edit Me Hotel' });
     render(<DayDetailPanel {...defaultProps} places={[place]} />);
     await screen.findByText('Edit Me Hotel');
-    // Click the pencil/edit button (index 1)
+    // Click the pencil/edit button (index 2, after collapse and close buttons)
     const allButtons = screen.getAllByRole('button');
-    await userEvent.click(allButtons[1]);
+    await userEvent.click(allButtons[2]);
     // Picker opens in edit mode
     await waitFor(() => {
       expect(document.body.querySelector('[style*="z-index: 99999"]')).toBeInTheDocument();
@@ -819,6 +819,77 @@ describe('DayDetailPanel', () => {
     await userEvent.hover(codeEl);
     await userEvent.unhover(codeEl);
     await userEvent.click(codeEl);
+  });
+
+  // ── Collapse behavior ─────────────────────────────────────────────────────────
+
+  it('FE-PLANNER-DAYDETAIL-048: collapse button has title "Collapse" when expanded', () => {
+    render(<DayDetailPanel {...defaultProps} collapsed={false} />);
+    const collapseBtn = screen.getByTitle('Collapse');
+    expect(collapseBtn).toBeInTheDocument();
+  });
+
+  it('FE-PLANNER-DAYDETAIL-049: collapse button has title "Expand" when collapsed', () => {
+    render(<DayDetailPanel {...defaultProps} collapsed={true} />);
+    const expandBtn = screen.getByTitle('Expand');
+    expect(expandBtn).toBeInTheDocument();
+  });
+
+  it('FE-PLANNER-DAYDETAIL-050: content area is hidden when collapsed=true', async () => {
+    server.use(
+      http.get('/api/trips/1/accommodations', () =>
+        HttpResponse.json({
+          accommodations: [{
+            id: 1, place_id: 5, place_name: 'Visible Hotel', place_address: 'Paris',
+            start_day_id: 1, end_day_id: 1, check_in: null, check_out: null, confirmation: null,
+          }],
+        })
+      ),
+    );
+    render(<DayDetailPanel {...defaultProps} collapsed={true} />);
+    await waitFor(() => {
+      const content = document.querySelector('[style*="overflow-y: auto"]');
+      expect(content).toHaveStyle({ display: 'none' });
+    });
+  });
+
+  it('FE-PLANNER-DAYDETAIL-051: content area is visible when collapsed=false', async () => {
+    render(<DayDetailPanel {...defaultProps} collapsed={false} />);
+    await waitFor(() => {
+      const content = document.querySelector('[style*="overflow-y: auto"]');
+      expect(content).toHaveStyle({ display: 'block' });
+    });
+  });
+
+  it('FE-PLANNER-DAYDETAIL-052: clicking the collapse button calls onToggleCollapse', async () => {
+    const onToggleCollapse = vi.fn();
+    render(<DayDetailPanel {...defaultProps} collapsed={false} onToggleCollapse={onToggleCollapse} />);
+    const collapseBtn = screen.getByTitle('Collapse');
+    await userEvent.click(collapseBtn);
+    expect(onToggleCollapse).toHaveBeenCalled();
+  });
+
+  it('FE-PLANNER-DAYDETAIL-053: clicking the header row calls onToggleCollapse', async () => {
+    const onToggleCollapse = vi.fn();
+    render(<DayDetailPanel {...defaultProps} collapsed={false} onToggleCollapse={onToggleCollapse} />);
+    // The header div (contains title text) is the clickable toggle area
+    await userEvent.click(screen.getByText('Day in Paris'));
+    expect(onToggleCollapse).toHaveBeenCalled();
+  });
+
+  it('FE-PLANNER-DAYDETAIL-054: when collapsed, date appears inline in title row', () => {
+    render(<DayDetailPanel {...defaultProps} collapsed={true} />);
+    // Title and date are in the same element when collapsed
+    const titleEl = screen.getByText(/Day in Paris/);
+    expect(titleEl.textContent).toMatch(/June|15/i);
+  });
+
+  it('FE-PLANNER-DAYDETAIL-055: when expanded, date is shown in a separate element below title', () => {
+    render(<DayDetailPanel {...defaultProps} collapsed={false} />);
+    const titleEl = screen.getByText('Day in Paris');
+    // The date should be in a sibling element, not inside the title element itself
+    expect(titleEl.textContent).toBe('Day in Paris');
+    expect(screen.getByText(/June|15/i)).toBeInTheDocument();
   });
 
   it('FE-PLANNER-DAYDETAIL-040: 12h time format renders reservation time with AM/PM', async () => {

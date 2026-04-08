@@ -1,4 +1,5 @@
 import { render, screen, fireEvent, act } from '../../../tests/helpers/render';
+import { getCached, isLoading, fetchPhoto, onThumbReady } from '../../services/photoService';
 
 // Mock photoService — all functions are no-ops / return null
 vi.mock('../../services/photoService', () => ({
@@ -11,11 +12,13 @@ vi.mock('../../services/photoService', () => ({
 // Mock IntersectionObserver as a class constructor
 const mockDisconnect = vi.fn();
 const mockObserve = vi.fn();
+let observerInstance: MockIntersectionObserver | null = null;
 
 class MockIntersectionObserver {
   callback: (entries: Partial<IntersectionObserverEntry>[]) => void;
   constructor(callback: (entries: Partial<IntersectionObserverEntry>[]) => void) {
     this.callback = callback;
+    observerInstance = this;
   }
   observe = mockObserve;
   disconnect = mockDisconnect;
@@ -26,9 +29,17 @@ beforeAll(() => {
   (globalThis as any).IntersectionObserver = MockIntersectionObserver;
 });
 
+beforeEach(() => {
+  vi.mocked(getCached).mockReturnValue(null);
+  vi.mocked(isLoading).mockReturnValue(false);
+  vi.mocked(fetchPhoto).mockReset();
+  vi.mocked(onThumbReady).mockReturnValue(() => {});
+});
+
 afterEach(() => {
   mockDisconnect.mockClear();
   mockObserve.mockClear();
+  observerInstance = null;
 });
 
 import PlaceAvatar from './PlaceAvatar';
@@ -100,5 +111,75 @@ describe('PlaceAvatar', () => {
     const wrapper = container.firstElementChild as HTMLElement;
     expect(wrapper.style.width).toBe('64px');
     expect(wrapper.style.height).toBe('64px');
+  });
+
+  it('FE-COMP-AVATAR-008: default size is 32px when size prop is omitted', () => {
+    const { container } = render(<PlaceAvatar place={basePlaceWithImage} />);
+    const wrapper = container.firstChild as HTMLElement;
+    expect(wrapper.style.width).toBe('32px');
+    expect(wrapper.style.height).toBe('32px');
+  });
+
+  it('FE-COMP-AVATAR-009: uses category icon (SVG) when no category provided', () => {
+    const { container } = render(<PlaceAvatar place={basePlaceNoImage} />);
+    expect(container.querySelector('svg')).toBeTruthy();
+  });
+
+  it('FE-COMP-AVATAR-010: uses category-specific icon when category.icon is set', () => {
+    const { container } = render(
+      <PlaceAvatar place={basePlaceNoImage} category={{ icon: 'MapPin', color: '#ff0000' }} />
+    );
+    expect(container.querySelector('svg')).toBeTruthy();
+  });
+
+  it('FE-COMP-AVATAR-011: calls fetchPhoto when visible and no image_url, no cache', () => {
+    render(<PlaceAvatar place={basePlaceNoImage} />);
+
+    act(() => {
+      observerInstance?.callback([{ isIntersecting: true }]);
+    });
+
+    expect(vi.mocked(fetchPhoto)).toHaveBeenCalled();
+  });
+
+  it('FE-COMP-AVATAR-012: sets photoSrc from cached thumbnail when cache hit', () => {
+    vi.mocked(getCached).mockReturnValue({ thumbDataUrl: 'data:image/jpeg;base64,abc', photoUrl: null } as any);
+
+    const { container } = render(
+      <PlaceAvatar place={{ ...basePlaceNoImage, google_place_id: 'gid123' }} />
+    );
+
+    const img = container.querySelector('img') as HTMLImageElement;
+    expect(img).toBeTruthy();
+    expect(img.src).toContain('data:image/jpeg;base64,abc');
+  });
+
+  it('FE-COMP-AVATAR-013: registers onThumbReady callback when photo is loading', () => {
+    vi.mocked(getCached).mockReturnValue(null);
+    vi.mocked(isLoading).mockReturnValue(true);
+
+    render(<PlaceAvatar place={{ ...basePlaceNoImage, google_place_id: 'gid456' }} />);
+
+    act(() => {
+      observerInstance?.callback([{ isIntersecting: true }]);
+    });
+
+    expect(vi.mocked(onThumbReady)).toHaveBeenCalledWith('gid456', expect.any(Function));
+  });
+
+  it('FE-COMP-AVATAR-014: does not call fetchPhoto when image_url is set', () => {
+    render(<PlaceAvatar place={basePlaceWithImage} />);
+    expect(vi.mocked(fetchPhoto)).not.toHaveBeenCalled();
+  });
+
+  it('FE-COMP-AVATAR-015: IntersectionObserver disconnected on unmount', () => {
+    const { unmount } = render(<PlaceAvatar place={basePlaceNoImage} />);
+    unmount();
+    expect(mockDisconnect).toHaveBeenCalled();
+  });
+
+  it('FE-COMP-AVATAR-016: does not set up IntersectionObserver when image_url present', () => {
+    render(<PlaceAvatar place={basePlaceWithImage} />);
+    expect(mockObserve).not.toHaveBeenCalled();
   });
 });
