@@ -158,6 +158,16 @@ export default function JourneyDetailPage() {
     [current?.entries]
   )
 
+  const sidebarMapItems = useMemo(() => mapEntries.map(e => ({
+    id: String(e.id),
+    lat: e.location_lat!,
+    lng: e.location_lng!,
+    title: e.title || '',
+    mood: e.mood,
+    created_at: e.entry_date,
+    entry_date: e.entry_date,
+  })), [mapEntries])
+
   const tripDates = useMemo(() => {
     const dates = new Set<string>()
     if (!current?.trips) return dates
@@ -387,17 +397,9 @@ export default function JourneyDetailPage() {
                 <JourneyMap
                   ref={mapRef}
                   checkins={[]}
-                  entries={mapEntries.map(e => ({
-                    id: String(e.id),
-                    lat: e.location_lat!,
-                    lng: e.location_lng!,
-                    title: e.title || '',
-                    mood: e.mood,
-                    created_at: e.entry_date,
-                    entry_date: e.entry_date,
-                  })) as any}
+                  entries={sidebarMapItems as any}
                   height={240}
-                  onMarkerClick={(id) => handleMarkerClick(id)}
+                  onMarkerClick={handleMarkerClick}
                 />
                 <div className="px-3.5 py-2.5 border-t border-zinc-200 dark:border-zinc-700 flex items-center justify-between text-[11px] text-zinc-500">
                   <span>{mapEntries.length} {t('journey.stats.places')}</span>

@@ -155,7 +155,7 @@ const JourneyMap = forwardRef<JourneyMapHandle, Props>(function JourneyMap(
 
     const map = L.map(containerRef.current, {
       zoomControl: false,
-      attributionControl: false,
+      attributionControl: true,
       scrollWheelZoom: false,
       dragging: true,
       touchZoom: true,
@@ -165,7 +165,10 @@ const JourneyMap = forwardRef<JourneyMapHandle, Props>(function JourneyMap(
     const defaultTile = dark
       ? 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png'
       : 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png'
-    L.tileLayer(mapTileUrl || defaultTile, { maxZoom: 18 }).addTo(map)
+    L.tileLayer(mapTileUrl || defaultTile, {
+      maxZoom: 18,
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+    }).addTo(map)
 
     const items = buildMarkerItems(entries)
     itemsRef.current = items
