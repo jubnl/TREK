@@ -94,7 +94,7 @@ function ImageLightbox({ files, initialIndex, onClose }: ImageLightboxProps) {
 
   return (
     <div
-      style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.92)', zIndex: 2000, display: 'flex', flexDirection: 'column' }}
+      style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.92)', zIndex: 2000, display: 'flex', flexDirection: 'column', paddingBottom: 'var(--bottom-nav-h)' }}
       onClick={onClose}
       onTouchStart={e => setTouchStart(e.touches[0].clientX)}
       onTouchEnd={e => {

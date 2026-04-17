@@ -8,7 +8,7 @@ import {
   mapDbError,
   Selection,
 } from './helpersService';
-import { getOrCreateTrekPhoto } from './photoResolverService';
+import { getOrCreateTrekPhoto, deleteTrekPhotoIfOrphan } from './photoResolverService';
 import { encrypt_api_key } from '../apiKeyCrypto';
 
 
@@ -212,6 +212,7 @@ export function removeTripPhoto(
         AND photo_id = ?
     `).run(tripId, userId, photoId);
 
+    deleteTrekPhotoIfOrphan(photoId);
     broadcast(tripId, 'memories:updated', { userId }, sid);
 
     return success(true);
@@ -269,13 +270,20 @@ export function removeAlbumLink(tripId: string, linkId: string, userId: number):
   }
 
   try {
+    const linkedPhotos = db.prepare('SELECT photo_id FROM trip_photos WHERE trip_id = ? AND album_link_id = ?')
+      .all(tripId, linkId) as Array<{ photo_id: number }>;
+
     db.transaction(() => {
       db.prepare('DELETE FROM trip_photos WHERE trip_id = ? AND album_link_id = ?')
         .run(tripId, linkId);
       db.prepare('DELETE FROM trip_album_links WHERE id = ? AND trip_id = ? AND user_id = ?')
         .run(linkId, tripId, userId);
     })();
-    
+
+    for (const { photo_id } of linkedPhotos) {
+      deleteTrekPhotoIfOrphan(photo_id);
+    }
+
     return success(true);
   } catch (error) {
     return mapDbError(error, 'Failed to remove album link');

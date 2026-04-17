@@ -329,7 +329,7 @@ export interface Journey {
   subtitle?: string | null;
   cover_gradient?: string | null;
   cover_image?: string | null;
-  status: 'draft' | 'active' | 'completed';
+  status: 'draft' | 'active' | 'completed' | 'archived';
   created_at: number;
   updated_at: number;
 }

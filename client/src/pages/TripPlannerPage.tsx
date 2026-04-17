@@ -28,6 +28,7 @@ import { useTranslation } from '../i18n'
 import { addonsApi, accommodationsApi, authApi, tripsApi, assignmentsApi, mapsApi } from '../api/client'
 import { accommodationRepo } from '../repo/accommodationRepo'
 import { offlineDb } from '../db/offlineDb'
+import { useAuthStore } from '../store/authStore'
 import ConfirmDialog from '../components/shared/ConfirmDialog'
 import { useResizablePanels } from '../hooks/useResizablePanels'
 import { useTripWebSocket } from '../hooks/useTripWebSocket'
@@ -141,6 +142,7 @@ export default function TripPlannerPage(): React.ReactElement | null {
   const toast = useToast()
   const { t, language } = useTranslation()
   const { settings } = useSettingsStore()
+  const placesPhotosEnabled = useAuthStore(s => s.placesPhotosEnabled)
   const trip = useTripStore(s => s.trip)
   const days = useTripStore(s => s.days)
   const places = useTripStore(s => s.places)
@@ -261,7 +263,7 @@ export default function TripPlannerPage(): React.ReactElement | null {
 
   // Start photo fetches during splash screen so images are ready when map mounts
   useEffect(() => {
-    if (isLoading || !places || places.length === 0) return
+    if (isLoading || !places || places.length === 0 || !placesPhotosEnabled) return
     for (const p of places) {
       if (p.image_url) continue
       const cacheKey = p.google_place_id || p.osm_id || `${p.lat},${p.lng}`
@@ -932,7 +934,7 @@ export default function TripPlannerPage(): React.ReactElement | null {
             )}
 
             {selectedPlace && isMobile && ReactDOM.createPortal(
-              <div style={{ position: 'fixed', inset: 0, zIndex: 9999, display: 'flex', alignItems: 'flex-end', justifyContent: 'center', background: 'rgba(0,0,0,0.3)' }} onClick={() => setSelectedPlaceId(null)}>
+              <div style={{ position: 'fixed', inset: 0, zIndex: 9999, display: 'flex', alignItems: 'flex-end', justifyContent: 'center', background: 'rgba(0,0,0,0.3)', paddingBottom: 'var(--bottom-nav-h)' }} onClick={() => setSelectedPlaceId(null)}>
                 <div style={{ width: '100%', maxHeight: '85vh' }} onClick={e => e.stopPropagation()}>
                   <PlaceInspector
                     place={selectedPlace}
@@ -994,7 +996,7 @@ export default function TripPlannerPage(): React.ReactElement | null {
                   </div>
                   <div style={{ flex: 1, overflow: 'auto' }}>
                     {mobileSidebarOpen === 'left'
-                      ? <DayPlanSidebar tripId={tripId} trip={trip} days={days} places={places} categories={categories} assignments={assignments} selectedDayId={selectedDayId} selectedPlaceId={selectedPlaceId} selectedAssignmentId={selectedAssignmentId} onSelectDay={(id) => { handleSelectDay(id); setMobileSidebarOpen(null) }} onPlaceClick={(placeId, assignmentId) => { handlePlaceClick(placeId, assignmentId); setMobileSidebarOpen(null) }} onReorder={handleReorder} onUpdateDayTitle={handleUpdateDayTitle} onAssignToDay={handleAssignToDay} onRouteCalculated={(r) => { if (r) { setRoute(r.coordinates); setRouteInfo({ distance: r.distanceText, duration: r.durationText }) } }} reservations={reservations} onAddReservation={(dayId) => { setEditingReservation(null); tripActions.setSelectedDay(dayId); setShowReservationModal(true); setMobileSidebarOpen(null) }} onAddPlace={() => { setEditingPlace(null); setShowPlaceForm(true); setMobileSidebarOpen(null) }} onDayDetail={(day) => { setShowDayDetail(day); setSelectedPlaceId(null); setSelectedAssignmentId(null); setMobileSidebarOpen(null) }} accommodations={tripAccommodations} onNavigateToFiles={() => { setMobileSidebarOpen(null); handleTabChange('dateien') }} onExpandedDaysChange={setExpandedDayIds} pushUndo={pushUndo} canUndo={canUndo} lastActionLabel={lastActionLabel} onUndo={handleUndo} />
+                      ? <DayPlanSidebar tripId={tripId} trip={trip} days={days} places={places} categories={categories} assignments={assignments} selectedDayId={selectedDayId} selectedPlaceId={selectedPlaceId} selectedAssignmentId={selectedAssignmentId} onSelectDay={(id) => { handleSelectDay(id); setMobileSidebarOpen(null) }} onPlaceClick={(placeId, assignmentId) => { handlePlaceClick(placeId, assignmentId); setMobileSidebarOpen(null) }} onReorder={handleReorder} onUpdateDayTitle={handleUpdateDayTitle} onAssignToDay={handleAssignToDay} onRouteCalculated={(r) => { if (r) { setRoute(r.coordinates); setRouteInfo({ distance: r.distanceText, duration: r.durationText }) } }} reservations={reservations} onAddReservation={(dayId) => { setEditingReservation(null); tripActions.setSelectedDay(dayId); setShowReservationModal(true); setMobileSidebarOpen(null) }} onAddPlace={() => { setEditingPlace(null); setShowPlaceForm(true); setMobileSidebarOpen(null) }} onDayDetail={(day) => { setShowDayDetail(day); setSelectedPlaceId(null); selectAssignment(null); setMobileSidebarOpen(null) }} accommodations={tripAccommodations} onNavigateToFiles={() => { setMobileSidebarOpen(null); handleTabChange('dateien') }} onExpandedDaysChange={setExpandedDayIds} pushUndo={pushUndo} canUndo={canUndo} lastActionLabel={lastActionLabel} onUndo={handleUndo} />
                       : <PlacesSidebar tripId={tripId} places={places} categories={categories} assignments={assignments} selectedDayId={selectedDayId} selectedPlaceId={selectedPlaceId} onPlaceClick={(placeId) => { handlePlaceClick(placeId); setMobileSidebarOpen(null) }} onAddPlace={() => { setEditingPlace(null); setShowPlaceForm(true); setMobileSidebarOpen(null) }} onAssignToDay={handleAssignToDay} onEditPlace={(place) => { setEditingPlace(place); setEditingAssignmentId(null); setShowPlaceForm(true); setMobileSidebarOpen(null) }} onDeletePlace={(placeId) => handleDeletePlace(placeId)} days={days} isMobile onCategoryFilterChange={setMapCategoryFilter} onPlacesFilterChange={setMapPlacesFilter} pushUndo={pushUndo} />
                     }
                   </div>

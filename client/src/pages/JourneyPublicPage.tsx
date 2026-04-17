@@ -176,7 +176,7 @@ export default function JourneyPublicPage() {
           <span style={{ fontSize: 11, opacity: 0.4 }}>·</span>
           <span style={{ fontSize: 12, fontWeight: 500, opacity: 0.8, display: 'flex', alignItems: 'center', gap: 5 }}><Camera size={12} /> {stats.photos} {t('journey.stats.photos')}</span>
           <span style={{ fontSize: 11, opacity: 0.4 }}>·</span>
-          <span style={{ fontSize: 12, fontWeight: 500, opacity: 0.8, display: 'flex', alignItems: 'center', gap: 5 }}><MapPin size={12} /> {stats.cities} {t('journey.stats.places')}</span>
+          <span style={{ fontSize: 12, fontWeight: 500, opacity: 0.8, display: 'flex', alignItems: 'center', gap: 5 }}><MapPin size={12} /> {stats.places} {t('journey.stats.places')}</span>
         </div>
 
         <div className="relative" style={{ marginTop: 12, fontSize: 9, fontWeight: 500, letterSpacing: 1.5, textTransform: 'uppercase', opacity: 0.25 }}>{t('journey.public.readOnly')}</div>

@@ -1267,7 +1267,7 @@ export default function PackingListPanel({ tripId, items, openImportSignal = 0 }
 
       {/* ── Bag Modal (mobile + click) ── */}
       {showBagModal && bagTrackingEnabled && (
-        <div style={{ position: 'fixed', inset: 0, zIndex: 100, background: 'rgba(0,0,0,0.3)', display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: 20, paddingTop: 140, overflowY: 'auto' }}
+        <div style={{ position: 'fixed', inset: 0, zIndex: 100, background: 'rgba(0,0,0,0.3)', display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: 20, paddingTop: 140, paddingBottom: 'calc(20px + var(--bottom-nav-h))', overflowY: 'auto' }}
           onClick={() => setShowBagModal(false)}>
           <div style={{ background: 'var(--bg-card)', borderRadius: 16, width: '100%', maxWidth: 360, maxHeight: 'calc(100vh - 80px)', overflow: 'auto', padding: 20, boxShadow: '0 16px 48px rgba(0,0,0,0.15)', flexShrink: 0 }}
             onClick={e => e.stopPropagation()}>

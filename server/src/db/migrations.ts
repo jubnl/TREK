@@ -1634,7 +1634,55 @@ function runMigrations(db: Database.Database): void {
       try { db.exec('ALTER TABLE trip_album_links ADD COLUMN passphrase TEXT DEFAULT NULL'); } catch (err: any) { if (!err.message?.includes('duplicate column name')) throw err; }
       try { db.exec('ALTER TABLE trek_photos ADD COLUMN passphrase TEXT DEFAULT NULL'); } catch (err: any) { if (!err.message?.includes('duplicate column name')) throw err; }
     },
-    // Migration 105: Reservation endpoints (from/to points for flights, trains, ferries, car rentals) — #384 + #587
+    // Migration 105: Persistent Google place photo disk cache registry
+    () => {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS google_place_photo_meta (
+          place_id   TEXT    PRIMARY KEY,
+          attribution TEXT,
+          fetched_at INTEGER NOT NULL,
+          error_at   INTEGER
+        )
+      `);
+    },
+    // Migration 106: Persistent Place Details row cache
+    () => {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS place_details_cache (
+          place_id   TEXT    NOT NULL,
+          lang       TEXT    NOT NULL DEFAULT '',
+          expanded   INTEGER NOT NULL DEFAULT 0,
+          payload_json TEXT  NOT NULL,
+          fetched_at INTEGER NOT NULL,
+          PRIMARY KEY (place_id, lang, expanded)
+        )
+      `);
+    },
+    // Migration 107: Backfill expired signed Google photo URLs to stable proxy URLs
+    { raw: () => {
+      db.exec(`
+        UPDATE places
+        SET image_url = '/api/maps/place-photo/' || google_place_id || '/bytes',
+            updated_at = CURRENT_TIMESTAMP
+        WHERE google_place_id IS NOT NULL
+          AND image_url IS NOT NULL
+          AND image_url != ''
+          AND (
+            (image_url LIKE '%googleusercontent.com%' AND image_url LIKE '%/places/%/photos/%')
+            OR (image_url LIKE '%places.googleapis.com%' AND image_url LIKE '%/places/%/photos/%')
+          )
+      `);
+    }},
+    // Migration 108: Disk cache metadata for remote-provider photo thumbnails (Immich / Synology)
+    () => db.exec(`
+      CREATE TABLE IF NOT EXISTS trek_photo_cache_meta (
+        cache_key  TEXT    PRIMARY KEY,
+        content_type TEXT  NOT NULL DEFAULT 'image/jpeg',
+        fetched_at INTEGER NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_trek_photo_cache_meta_fetched_at ON trek_photo_cache_meta (fetched_at);
+    `),
+    // Migration 109: Reservation endpoints (from/to points for flights, trains, ferries, car rentals) — #384 + #587
     () => {
       db.exec(`
         CREATE TABLE IF NOT EXISTS reservation_endpoints (

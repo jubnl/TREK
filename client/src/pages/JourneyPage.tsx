@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo } from 'react'
+import { useEffect, useState, useMemo, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useJourneyStore } from '../store/journeyStore'
 import { journeyApi } from '../api/client'
@@ -10,6 +10,7 @@ import {
   Check, X, ChevronRight, RefreshCw, Users,
 } from 'lucide-react'
 import type { Journey } from '../store/journeyStore'
+import { computeJourneyLifecycle } from '../utils/journeyLifecycle'
 
 const GRADIENTS = [
   'linear-gradient(135deg, #0F172A 0%, #6366F1 45%, #EC4899 100%)',
@@ -43,6 +44,9 @@ export default function JourneyPage() {
   const [newTitle, setNewTitle] = useState('')
   const [availableTrips, setAvailableTrips] = useState<any[]>([])
   const [selectedTripIds, setSelectedTripIds] = useState<Set<number>>(new Set())
+  const [searchOpen, setSearchOpen] = useState(false)
+  const [searchQuery, setSearchQuery] = useState('')
+  const searchInputRef = useRef<HTMLInputElement>(null)
 
   // suggestion
   const [suggestions, setSuggestions] = useState<any[]>([])
@@ -56,12 +60,22 @@ export default function JourneyPage() {
   const activeSuggestion = suggestions.find(s => !dismissedSuggestions.has(s.id))
 
   const activeJourney = useMemo(() => {
-    return journeys.find(j => j.status === 'active') || null
-  }, [journeys])
+    if (searchQuery.trim()) return null
+    return journeys.find(j => {
+      const j2 = j as any
+      return computeJourneyLifecycle(j.status, j2.trip_date_min, j2.trip_date_max) === 'live'
+    }) || null
+  }, [journeys, searchQuery])
 
-  const otherJourneys = useMemo(() => {
-    return journeys.filter(j => j.id !== activeJourney?.id)
-  }, [journeys, activeJourney])
+  const filteredJourneys = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase()
+    if (!q) return journeys.filter(j => j.id !== activeJourney?.id)
+    return journeys.filter(j => {
+      const inTitle = j.title.toLowerCase().includes(q)
+      const inSubtitle = j.subtitle?.toLowerCase().includes(q) ?? false
+      return inTitle || inSubtitle
+    })
+  }, [journeys, activeJourney, searchQuery])
 
   const openCreateModal = async (preSelectedTripId?: number) => {
     setShowCreate(true)
@@ -99,15 +113,41 @@ export default function JourneyPage() {
       <div style={{ paddingTop: 'var(--nav-h, 56px)' }}>
         <div className="max-w-[1440px] mx-auto">
 
-          {/* Header — mobile: just a create button */}
-          <div className="md:hidden px-5 pt-5 pb-4">
-            <button
-              onClick={() => openCreateModal()}
-              className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-zinc-900 dark:bg-white text-white dark:text-zinc-900 text-[14px] font-semibold active:scale-[0.98] transition-transform"
-            >
-              <Plus size={16} strokeWidth={2.5} />
-              {t('journey.frontpage.createJourney')}
-            </button>
+          {/* Header — mobile */}
+          <div className="md:hidden px-5 pt-5 pb-4 flex flex-col gap-2">
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => {
+                  if (searchOpen) {
+                    setSearchOpen(false)
+                    setSearchQuery('')
+                  } else {
+                    setSearchOpen(true)
+                    setTimeout(() => searchInputRef.current?.focus(), 50)
+                  }
+                }}
+                className="w-10 h-10 rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 flex items-center justify-center text-zinc-500 hover:bg-zinc-50 dark:hover:bg-zinc-700 flex-shrink-0"
+              >
+                {searchOpen ? <X size={15} /> : <Search size={15} />}
+              </button>
+              <button
+                onClick={() => openCreateModal()}
+                className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl bg-zinc-900 dark:bg-white text-white dark:text-zinc-900 text-[14px] font-semibold active:scale-[0.98] transition-transform"
+              >
+                <Plus size={16} strokeWidth={2.5} />
+                {t('journey.frontpage.createJourney')}
+              </button>
+            </div>
+            {searchOpen && (
+              <input
+                ref={searchInputRef}
+                value={searchQuery}
+                onChange={e => setSearchQuery(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Escape') { setSearchQuery(''); setSearchOpen(false) } }}
+                placeholder={t('journey.search.placeholder')}
+                className="w-full px-3.5 py-2.5 border border-zinc-200 dark:border-zinc-700 rounded-xl text-[14px] bg-white dark:bg-zinc-800 text-zinc-900 dark:text-white focus:border-zinc-400 focus:outline-none"
+              />
+            )}
           </div>
 
           {/* Header — desktop */}
@@ -117,8 +157,24 @@ export default function JourneyPage() {
               <p className="text-[13px] text-zinc-500 mt-1.5">{t("journey.frontpage.subtitle")}</p>
             </div>
             <div className="flex items-center gap-2">
-              <button className="w-9 h-9 rounded-[10px] border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 flex items-center justify-center text-zinc-500 hover:bg-zinc-50 dark:hover:bg-zinc-700">
-                <Search size={15} />
+              {searchOpen && (
+                <input
+                  value={searchQuery}
+                  onChange={e => setSearchQuery(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Escape') { setSearchQuery(''); setSearchOpen(false) } }}
+                  placeholder={t('journey.search.placeholder')}
+                  autoFocus
+                  className="w-52 px-3 py-2 border border-zinc-200 dark:border-zinc-700 rounded-[10px] text-[13px] bg-white dark:bg-zinc-800 text-zinc-900 dark:text-white focus:border-zinc-400 focus:outline-none"
+                />
+              )}
+              <button
+                onClick={() => {
+                  setSearchOpen(s => !s)
+                  if (searchOpen) setSearchQuery('')
+                }}
+                className={`w-9 h-9 rounded-[10px] border border-zinc-200 dark:border-zinc-700 flex items-center justify-center text-zinc-500 transition-colors ${searchOpen ? 'bg-zinc-100 dark:bg-zinc-700' : 'bg-white dark:bg-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-700'}`}
+              >
+                {searchOpen ? <X size={15} /> : <Search size={15} />}
               </button>
               <button
                 onClick={() => openCreateModal()}
@@ -226,7 +282,7 @@ export default function JourneyPage() {
                         {[
                           { val: (activeJourney as any).entry_count ?? '--', label: t("journey.stats.entries") },
                           { val: (activeJourney as any).photo_count ?? '--', label: t("journey.stats.photos") },
-                          { val: (activeJourney as any).city_count ?? '--', label: t("journey.stats.cities") },
+                          { val: (activeJourney as any).place_count ?? '--', label: t("journey.stats.places") },
                         ].map(s => (
                           <div key={s.label} className="flex flex-col gap-1">
                             <span className="text-[28px] font-extrabold tracking-[-0.02em] leading-none">{s.val}</span>
@@ -243,11 +299,24 @@ export default function JourneyPage() {
               </div>
             )}
 
+            {/* Search results info */}
+            {searchQuery.trim() && (
+              <div className="mb-4 flex items-center gap-2">
+                <span className="text-[13px] text-zinc-500">
+                  {filteredJourneys.length === 0
+                    ? t('journey.search.noResults', { query: searchQuery.trim() })
+                    : `${filteredJourneys.length} ${t('journey.frontpage.journeys')}`}
+                </span>
+              </div>
+            )}
+
             {/* All Journeys */}
-            <div className="mb-4 flex items-center justify-between">
-              <span className="text-[11px] font-bold tracking-[0.14em] uppercase text-zinc-500">{t("journey.frontpage.allJourneys")}</span>
-              <span className="text-[11px] text-zinc-400">{journeys.length} {t('journey.frontpage.journeys')}</span>
-            </div>
+            {!searchQuery.trim() && (
+              <div className="mb-4 flex items-center justify-between">
+                <span className="text-[11px] font-bold tracking-[0.14em] uppercase text-zinc-500">{t("journey.frontpage.allJourneys")}</span>
+                <span className="text-[11px] text-zinc-400">{journeys.length} {t('journey.frontpage.journeys')}</span>
+              </div>
+            )}
 
             {loading && journeys.length === 0 ? (
               <div className="flex justify-center py-16">
@@ -255,7 +324,7 @@ export default function JourneyPage() {
               </div>
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-[18px]">
-                {otherJourneys.map(j => (
+                {filteredJourneys.map(j => (
                   <JourneyCard key={j.id} journey={j} onClick={() => navigate(`/journey/${j.id}`)} />
                 ))}
 
@@ -279,7 +348,7 @@ export default function JourneyPage() {
       {/* Create Modal */}
       {showCreate && (
         <div className="fixed inset-0 z-[200] flex items-center justify-center p-5" style={{ background: 'rgba(9,9,11,0.6)', backdropFilter: 'blur(6px)' }}>
-          <div className="bg-white dark:bg-zinc-900 rounded-2xl shadow-[0_20px_40px_rgba(0,0,0,0.2)] max-w-[640px] w-full max-h-[90vh] flex flex-col overflow-hidden">
+          <div className="bg-white dark:bg-zinc-900 rounded-2xl shadow-[0_20px_40px_rgba(0,0,0,0.2)] max-w-[640px] w-full max-h-[90vh] flex flex-col overflow-hidden" style={{ paddingBottom: 'var(--bottom-nav-h)' }}>
 
             {/* Header */}
             <div className="px-7 pt-6 pb-5 border-b border-zinc-200 dark:border-zinc-700">
@@ -386,12 +455,13 @@ export default function JourneyPage() {
   )
 }
 
-function JourneyCard({ journey, onClick }: { journey: Journey & { entry_count?: number; photo_count?: number; city_count?: number }; onClick: () => void }) {
+function JourneyCard({ journey, onClick }: { journey: Journey & { entry_count?: number; photo_count?: number; place_count?: number; trip_date_min?: string | null; trip_date_max?: string | null }; onClick: () => void }) {
   const { t } = useTranslation()
   const j = journey
   const entryCount = j.entry_count ?? 0
   const photoCount = j.photo_count ?? 0
-  const cityCount = j.city_count ?? 0
+  const placeCount = j.place_count ?? 0
+  const lifecycle = computeJourneyLifecycle(j.status, j.trip_date_min, j.trip_date_max)
 
   return (
     <div
@@ -424,15 +494,22 @@ function JourneyCard({ journey, onClick }: { journey: Journey & { entry_count?: 
         {j.subtitle && (
           <p className="text-[12px] text-zinc-500 mt-1">{j.subtitle}</p>
         )}
-        {j.status === 'draft' && (
-          <span className="inline-flex self-start mt-1.5 px-2 py-0.5 rounded-full bg-zinc-100 dark:bg-zinc-800 text-[10px] font-medium text-zinc-500 uppercase tracking-wide">{t('journey.status.draft')}</span>
+        {lifecycle !== 'live' && (
+          <span className={`inline-flex self-start mt-1.5 px-2 py-0.5 rounded-full text-[10px] font-medium uppercase tracking-wide ${
+            lifecycle === 'archived' ? 'bg-zinc-100 dark:bg-zinc-800 text-zinc-500' :
+            lifecycle === 'upcoming' ? 'bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400' :
+            lifecycle === 'completed' ? 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400' :
+            'bg-zinc-100 dark:bg-zinc-800 text-zinc-500'
+          }`}>
+            {t(`journey.status.${lifecycle}`)}
+          </span>
         )}
 
         <div className="grid grid-cols-3 gap-2.5 mt-auto pt-3.5 border-t border-zinc-100 dark:border-zinc-800" style={{ marginTop: j.subtitle ? 14 : 'auto' }}>
           {[
             { val: entryCount, label: t('journey.stats.entries') },
             { val: photoCount, label: t('journey.stats.photos') },
-            { val: cityCount, label: t('journey.stats.cities') },
+            { val: placeCount, label: t('journey.stats.places') },
           ].map(s => (
             <div key={s.label} className="flex flex-col gap-1">
               <span className={`text-[16px] font-bold leading-none tracking-[-0.01em] ${s.val > 0 ? 'text-zinc-900 dark:text-white' : 'text-zinc-300 dark:text-zinc-600'}`}>

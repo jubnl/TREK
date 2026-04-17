@@ -115,13 +115,14 @@ router.post('/entries/:entryId/photos', authenticate, upload.array('photos', 10)
 
 router.post('/entries/:entryId/provider-photos', authenticate, (req: Request, res: Response) => {
   const authReq = req as AuthRequest;
-  const { provider, asset_id, asset_ids, caption } = req.body || {};
+  const { provider, asset_id, asset_ids, caption, passphrase } = req.body || {};
+  const pp = passphrase && typeof passphrase === 'string' ? passphrase : undefined;
 
   // Batch mode: { provider, asset_ids: string[] }
   if (Array.isArray(asset_ids) && provider) {
     const added: any[] = [];
     for (const id of asset_ids) {
-      const photo = svc.addProviderPhoto(Number(req.params.entryId), authReq.user.id, provider, String(id), caption);
+      const photo = svc.addProviderPhoto(Number(req.params.entryId), authReq.user.id, provider, String(id), caption, pp);
       if (photo) added.push(photo);
     }
     return res.status(201).json({ photos: added, added: added.length });
@@ -129,7 +130,7 @@ router.post('/entries/:entryId/provider-photos', authenticate, (req: Request, re
 
   // Single mode (backward compat)
   if (!provider || !asset_id) return res.status(400).json({ error: 'provider and asset_id required' });
-  const photo = svc.addProviderPhoto(Number(req.params.entryId), authReq.user.id, provider, asset_id, caption);
+  const photo = svc.addProviderPhoto(Number(req.params.entryId), authReq.user.id, provider, asset_id, caption, pp);
   if (!photo) return res.status(403).json({ error: 'Not allowed or duplicate' });
   res.status(201).json(photo);
 });

@@ -336,7 +336,7 @@ describe('getPublicJourney', () => {
     expect(result!.entries).toHaveLength(2);
     expect(result!.stats.entries).toBe(2);
     expect(result!.stats.photos).toBe(1);
-    expect(result!.stats.cities).toBe(2);
+    expect(result!.stats.places).toBe(2);
     expect(result!.permissions.share_timeline).toBe(true);
     expect(result!.permissions.share_gallery).toBe(true);
     expect(result!.permissions.share_map).toBe(false);
@@ -397,6 +397,6 @@ describe('getPublicJourney', () => {
     expect(result!.entries).toEqual([]);
     expect(result!.stats.entries).toBe(0);
     expect(result!.stats.photos).toBe(0);
-    expect(result!.stats.cities).toBe(0);
+    expect(result!.stats.places).toBe(0);
   });
 });

@@ -109,7 +109,7 @@ const mockJourneyData = {
   stats: {
     entries: 2,
     photos: 1,
-    cities: 2,
+    places: 2,
   },
 };
 
@@ -354,7 +354,7 @@ describe('JourneyPublicPage', () => {
           ],
         },
       ],
-      stats: { entries: 1, photos: 3, cities: 0 },
+      stats: { entries: 1, photos: 3, places: 0 },
     };
 
     server.use(
@@ -383,7 +383,7 @@ describe('JourneyPublicPage', () => {
   it('FE-PAGE-PUBLICJOURNEY-015: stats display shows entries, photos, and cities counts', async () => {
     const customData = {
       ...mockJourneyData,
-      stats: { entries: 14, photos: 83, cities: 7 },
+      stats: { entries: 14, photos: 83, places: 7 },
     };
     server.use(
       http.get('/api/public/journey/test-share-token', () => HttpResponse.json(customData)),

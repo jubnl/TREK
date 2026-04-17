@@ -43,7 +43,9 @@ function buildJourneyListItem(overrides: Record<string, unknown> = {}) {
     status: 'draft' as const,
     entry_count: 0,
     photo_count: 0,
-    city_count: 0,
+    place_count: 0,
+    trip_date_min: null as string | null,
+    trip_date_max: null as string | null,
     created_at: Date.now(),
     updated_at: Date.now(),
     ...overrides,
@@ -194,7 +196,7 @@ describe('JourneyPage', () => {
 
   // FE-PAGE-JOURNEY-008
   it('FE-PAGE-JOURNEY-008: shows active journey hero when active journey exists', async () => {
-    const active = buildJourneyListItem({ id: 10, title: 'Active Trip', status: 'active' });
+    const active = buildJourneyListItem({ id: 10, title: 'Active Trip', status: 'active', trip_date_min: '2020-01-01', trip_date_max: '2099-12-31' });
     const other = buildJourneyListItem({ id: 11, title: 'Completed Trip', status: 'completed' });
     setupDefaultHandlers([active, other]);
 
@@ -320,13 +322,13 @@ describe('JourneyPage', () => {
   });
 
   // FE-PAGE-JOURNEY-013
-  it('FE-PAGE-JOURNEY-013: journey card shows entry/photo/city counts', async () => {
+  it('FE-PAGE-JOURNEY-013: journey card shows entry/photo/place counts', async () => {
     const j1 = buildJourneyListItem({
       id: 20,
       title: 'Stats Journey',
       entry_count: 12,
       photo_count: 47,
-      city_count: 5,
+      place_count: 5,
     });
     setupDefaultHandlers([j1]);
 
@@ -335,7 +337,7 @@ describe('JourneyPage', () => {
       expect(screen.getByText('Stats Journey')).toBeInTheDocument();
     });
 
-    // The card renders entry_count, photo_count, city_count values
+    // The card renders entry_count, photo_count, place_count values
     expect(screen.getByText('12')).toBeInTheDocument();
     expect(screen.getByText('47')).toBeInTheDocument();
     expect(screen.getByText('5')).toBeInTheDocument();
@@ -361,6 +363,8 @@ describe('JourneyPage', () => {
       id: 40,
       title: 'Recent Active',
       status: 'active',
+      trip_date_min: '2020-01-01',
+      trip_date_max: '2099-12-31',
       updated_at: Date.now() - 60000, // 1 minute ago
     });
     setupDefaultHandlers([active]);
@@ -380,6 +384,8 @@ describe('JourneyPage', () => {
       id: 41,
       title: 'Hours Active',
       status: 'active',
+      trip_date_min: '2020-01-01',
+      trip_date_max: '2099-12-31',
       updated_at: Date.now() - 3 * 3600000, // 3 hours ago
     });
     setupDefaultHandlers([active]);
@@ -399,6 +405,8 @@ describe('JourneyPage', () => {
       id: 42,
       title: 'Days Active',
       status: 'active',
+      trip_date_min: '2020-01-01',
+      trip_date_max: '2099-12-31',
       updated_at: Date.now() - 5 * 24 * 3600000, // 5 days ago
     });
     setupDefaultHandlers([active]);
@@ -414,7 +422,7 @@ describe('JourneyPage', () => {
 
   // FE-PAGE-JOURNEY-018
   it('FE-PAGE-JOURNEY-018: active journey hero shows "Continue writing" button', async () => {
-    const active = buildJourneyListItem({ id: 50, title: 'Writing Journey', status: 'active' });
+    const active = buildJourneyListItem({ id: 50, title: 'Writing Journey', status: 'active', trip_date_min: '2020-01-01', trip_date_max: '2099-12-31' });
     setupDefaultHandlers([active]);
 
     render(<JourneyPage />);
@@ -427,7 +435,7 @@ describe('JourneyPage', () => {
 
   // FE-PAGE-JOURNEY-019
   it('FE-PAGE-JOURNEY-019: active journey hero shows Live and Synced badges', async () => {
-    const active = buildJourneyListItem({ id: 51, title: 'Live Journey', status: 'active' });
+    const active = buildJourneyListItem({ id: 51, title: 'Live Journey', status: 'active', trip_date_min: '2020-01-01', trip_date_max: '2099-12-31' });
     setupDefaultHandlers([active]);
 
     render(<JourneyPage />);
@@ -442,7 +450,7 @@ describe('JourneyPage', () => {
   // FE-PAGE-JOURNEY-020
   it('FE-PAGE-JOURNEY-020: clicking active journey hero navigates to its detail page', async () => {
     const user = userEvent.setup();
-    const active = buildJourneyListItem({ id: 60, title: 'Clickable Hero', status: 'active' });
+    const active = buildJourneyListItem({ id: 60, title: 'Clickable Hero', status: 'active', trip_date_min: '2020-01-01', trip_date_max: '2099-12-31' });
     setupDefaultHandlers([active]);
 
     render(<JourneyPage />);

@@ -24,6 +24,7 @@ import MobileMapTimeline from '../components/Journey/MobileMapTimeline'
 import MobileEntryView from '../components/Journey/MobileEntryView'
 import { useIsMobile } from '../hooks/useIsMobile'
 import type { JourneyEntry, JourneyPhoto, JourneyDetail } from '../store/journeyStore'
+import { computeJourneyLifecycle } from '../utils/journeyLifecycle'
 
 const GRADIENTS = [
   'linear-gradient(135deg, #0F172A 0%, #6366F1 45%, #EC4899 100%)',
@@ -163,6 +164,12 @@ export default function JourneyDetailPage() {
     setActiveLocationId(id)
   }, [])
 
+  useEffect(() => {
+    if (view === 'map') {
+      requestAnimationFrame(() => fullMapRef.current?.invalidateSize())
+    }
+  }, [view])
+
   const mapEntries = useMemo(
     () => (current?.entries || []).filter(e => e.location_lat && e.location_lng),
     [current?.entries]
@@ -206,6 +213,14 @@ export default function JourneyDetailPage() {
   const timelineEntries = current.entries.filter(e => e.title !== 'Gallery' && e.title !== '[Trip Photos]' && (!hideSkeletons || e.type !== 'skeleton'))
   const dayGroups = groupByDate(timelineEntries)
   const sortedDates = [...dayGroups.keys()].sort()
+
+  const tripDateMin = current.trips.length
+    ? current.trips.reduce((min: string, t: any) => t.start_date && (!min || t.start_date < min) ? t.start_date : min, '')
+    : null
+  const tripDateMax = current.trips.length
+    ? current.trips.reduce((max: string, t: any) => t.end_date && (!max || t.end_date > max) ? t.end_date : max, '')
+    : null
+  const lifecycle = computeJourneyLifecycle(current.status, tripDateMin || null, tripDateMax || null)
 
   const showMobileCombined = isMobile && view === 'timeline'
 
@@ -283,16 +298,28 @@ export default function JourneyDetailPage() {
                 <div className="relative z-[3] flex items-center justify-between mb-5">
                   {/* Desktop: badges */}
                   <div className="hidden md:flex items-center gap-2">
-                    {current.status === 'active' && (
+                    {lifecycle === 'live' && (
                       <div className="inline-flex items-center gap-2 px-2.5 py-1 bg-white/15 backdrop-blur rounded-full text-[10px] font-semibold uppercase">
                         <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                        Live
+                        {t('journey.frontpage.live')}
                       </div>
                     )}
-                    <div className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-white/[0.12] backdrop-blur border border-white/15 rounded-full text-[11px] font-medium">
-                      <RefreshCw size={11} />
-                      {t('journey.detail.syncedWithTrips')}
-                    </div>
+                    {lifecycle !== 'archived' && current.trips.length > 0 && (
+                      <div className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-white/[0.12] backdrop-blur border border-white/15 rounded-full text-[11px] font-medium">
+                        <RefreshCw size={11} />
+                        {t('journey.detail.syncedWithTrips')}
+                      </div>
+                    )}
+                    {lifecycle !== 'live' && lifecycle !== 'archived' && (
+                      <div className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-white/[0.12] backdrop-blur border border-white/15 rounded-full text-[11px] font-medium">
+                        {t(`journey.status.${lifecycle === 'upcoming' ? 'upcoming' : lifecycle === 'draft' ? 'draft' : 'completed'}`)}
+                      </div>
+                    )}
+                    {lifecycle === 'archived' && (
+                      <div className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-white/[0.12] backdrop-blur border border-white/15 rounded-full text-[11px] font-medium">
+                        {t('journey.status.archived')}
+                      </div>
+                    )}
                   </div>
                   {/* Mobile: back button on the left */}
                   <button
@@ -331,7 +358,7 @@ export default function JourneyDetailPage() {
                   <div className="flex gap-8">
                     {[
                       { value: sortedDates.length, label: t('journey.stats.days') },
-                      { value: current.stats.cities, label: t('journey.stats.cities') },
+                      { value: current.stats.places, label: t('journey.stats.places') },
                       { value: current.stats.entries, label: t('journey.stats.entries') },
                       { value: current.stats.photos, label: t('journey.stats.photos') },
                     ].map(s => (
@@ -392,8 +419,8 @@ export default function JourneyDetailPage() {
               </div>
 
               {/* Timeline (desktop only — mobile uses fullscreen combined view above) */}
-              {!isMobile && view === 'timeline' && (
-                <div className="flex flex-col gap-6 pb-24 md:pb-6">
+              {!isMobile && (
+                <div className={`flex flex-col gap-6 pb-24 md:pb-6${view === 'timeline' ? '' : ' hidden'}`}>
                   {sortedDates.length === 0 && (
                     <div className="text-center py-16">
                       <div className="w-16 h-16 rounded-full bg-zinc-100 dark:bg-zinc-800 flex items-center justify-center mx-auto mb-4">
@@ -448,7 +475,7 @@ export default function JourneyDetailPage() {
               )}
 
               {/* Gallery View */}
-              {view === 'gallery' && (
+              <div className={view === 'gallery' ? '' : 'hidden'}>
                 <GalleryView
                   entries={current.entries}
                   journeyId={current.id}
@@ -457,17 +484,21 @@ export default function JourneyDetailPage() {
                   onPhotoClick={(photos, idx) => setLightbox({ photos: photos.map(p => ({ id: p.id, src: photoUrl(p, 'original'), caption: p.caption, provider: p.provider, asset_id: p.asset_id, owner_id: p.owner_id })), index: idx })}
                   onRefresh={() => loadJourney(Number(id))}
                 />
-              )}
+              </div>
 
               {/* Full Map View (desktop only — mobile uses combined view) */}
-              {!isMobile && view === 'map' && <div className="pb-24 md:pb-6"><MapView
-                entries={current.entries}
-                mapEntries={mapEntries}
-                sortedDates={sortedDates}
-                activeLocationId={activeLocationId}
-                fullMapRef={fullMapRef}
-                onLocationClick={handleLocationClick}
-              /></div>}
+              {!isMobile && (
+                <div className={`pb-24 md:pb-6${view === 'map' ? '' : ' hidden'}`}>
+                  <MapView
+                    entries={current.entries}
+                    mapEntries={mapEntries}
+                    sortedDates={sortedDates}
+                    activeLocationId={activeLocationId}
+                    fullMapRef={fullMapRef}
+                    onLocationClick={handleLocationClick}
+                  />
+                </div>
+              )}
             </div>
 
             {/* Right sidebar — hidden on mobile */}
@@ -494,7 +525,7 @@ export default function JourneyDetailPage() {
                     { value: sortedDates.length, label: t('journey.stats.days') },
                     { value: current.stats.entries, label: t('journey.stats.entries') },
                     { value: current.stats.photos, label: t('journey.stats.photos') },
-                    { value: current.stats.cities, label: t('journey.stats.cities') },
+                    { value: current.stats.places, label: t('journey.stats.places') },
                   ].map(s => (
                     <div key={s.label} className="rounded-lg bg-zinc-50 dark:bg-zinc-800/60 border border-zinc-100 dark:border-zinc-700/50 px-3 py-2.5">
                       <div className="text-[18px] font-bold tracking-[-0.02em] text-zinc-900 dark:text-white leading-none mb-0.5">{s.value}</div>
@@ -1021,7 +1052,7 @@ function GalleryView({ entries, journeyId, userId, trips, onPhotoClick, onRefres
           trips={trips}
           existingAssetIds={new Set(entries.flatMap(e => (e.photos || []).filter(p => p.asset_id).map(p => p.asset_id!)))}
           onClose={() => setShowPicker(false)}
-          onAdd={async (assetIds, entryId) => {
+          onAdd={async (groups, entryId) => {
             let targetId = entryId
             if (!targetId) {
               try {
@@ -1034,10 +1065,12 @@ function GalleryView({ entries, journeyId, userId, trips, onPhotoClick, onRefres
               } catch { return }
             }
             let added = 0
-            try {
-              const result = await journeyApi.addProviderPhotos(targetId, pickerProvider!, assetIds)
-              added = result.added || 0
-            } catch {}
+            for (const group of groups) {
+              try {
+                const result = await journeyApi.addProviderPhotos(targetId, pickerProvider!, group.assetIds, undefined, group.passphrase)
+                added += result.added || 0
+              } catch {}
+            }
             if (added > 0) {
               toast.success(t('journey.photosAdded', { count: added }))
               onRefresh()
@@ -1511,7 +1544,7 @@ function ProviderPicker({ provider, userId, entries, trips, existingAssetIds, on
   trips: JourneyTrip[]
   existingAssetIds: Set<string>
   onClose: () => void
-  onAdd: (assetIds: string[], entryId: number | null) => Promise<void>
+  onAdd: (groups: Array<{ assetIds: string[]; passphrase?: string }>, entryId: number | null) => Promise<void>
 }) {
   const { t } = useTranslation()
   const [filter, setFilter] = useState<'trip' | 'custom' | 'all' | 'album'>('trip')
@@ -1525,7 +1558,7 @@ function ProviderPicker({ provider, userId, entries, trips, existingAssetIds, on
   const [searchPage, setSearchPage] = useState(1)
   const [searchFrom, setSearchFrom] = useState('')
   const [searchTo, setSearchTo] = useState('')
-  const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [selected, setSelected] = useState<Map<string, { albumId?: string; passphrase?: string }>>(new Map())
   const [customFrom, setCustomFrom] = useState('')
   const [customTo, setCustomTo] = useState('')
   const [targetEntryId, setTargetEntryId] = useState<number | null>(null)
@@ -1617,8 +1650,12 @@ function ProviderPicker({ provider, userId, entries, trips, existingAssetIds, on
 
   const toggleAsset = (id: string) => {
     setSelected(prev => {
-      const next = new Set(prev)
-      if (next.has(id)) next.delete(id); else next.add(id)
+      const next = new Map(prev)
+      if (next.has(id)) {
+        next.delete(id)
+      } else {
+        next.set(id, { albumId: selectedAlbum ?? undefined, passphrase: selectedAlbumPassphrase })
+      }
       return next
     })
   }
@@ -1780,9 +1817,9 @@ function ProviderPicker({ provider, userId, entries, trips, existingAssetIds, on
               <button
                 onClick={() => {
                   if (allSelected) {
-                    setSelected(new Set())
+                    setSelected(new Map())
                   } else {
-                    setSelected(new Set(selectable.map((a: any) => a.id)))
+                    setSelected(new Map(selectable.map((a: any) => [a.id, { albumId: selectedAlbum ?? undefined, passphrase: selectedAlbumPassphrase }])))
                   }
                 }}
                 className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-medium border border-zinc-200 dark:border-zinc-700 text-zinc-500 dark:text-zinc-400 hover:bg-zinc-50 dark:hover:bg-zinc-800"
@@ -1884,7 +1921,16 @@ function ProviderPicker({ provider, userId, entries, trips, existingAssetIds, on
               {t('common.cancel')}
             </button>
             <button
-              onClick={() => onAdd([...selected], targetEntryId)}
+              onClick={() => {
+                const groupMap = new Map<string | undefined, string[]>()
+                for (const [assetId, { passphrase }] of selected.entries()) {
+                  const list = groupMap.get(passphrase) || []
+                  list.push(assetId)
+                  groupMap.set(passphrase, list)
+                }
+                const groups = [...groupMap.entries()].map(([passphrase, assetIds]) => ({ assetIds, passphrase }))
+                onAdd(groups, targetEntryId)
+              }}
               disabled={selected.size === 0}
               className="px-3.5 py-2 rounded-lg bg-zinc-900 dark:bg-white text-white dark:text-zinc-900 text-[13px] font-medium hover:bg-zinc-800 dark:hover:bg-zinc-100 disabled:opacity-40 disabled:cursor-not-allowed"
             >
@@ -2091,7 +2137,7 @@ function EntryEditor({ entry, journeyId, tripDates, galleryPhotos, onClose, onSa
 
   return (
     <div className="fixed inset-0 z-[9999] flex items-end sm:items-center sm:justify-center sm:p-5" style={{ background: 'rgba(9,9,11,0.75)' }}>
-      <div className="bg-white dark:bg-zinc-900 sm:rounded-2xl shadow-[0_20px_40px_rgba(0,0,0,0.2)] sm:max-w-[640px] w-full flex flex-col overflow-hidden h-full sm:h-auto sm:max-h-[90vh]">
+      <div className="bg-white dark:bg-zinc-900 sm:rounded-2xl shadow-[0_20px_40px_rgba(0,0,0,0.2)] sm:max-w-[640px] w-full flex flex-col overflow-hidden h-full sm:h-auto sm:max-h-[90vh]" style={{ paddingBottom: 'var(--bottom-nav-h)' }}>
 
 
         <div className="flex items-center justify-between px-6 py-4 border-b border-zinc-200 dark:border-zinc-700">
@@ -2820,6 +2866,21 @@ function JourneySettingsDialog({ journey, onClose, onSaved, onOpenInvite }: {
   }
 
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
+  const [archiving, setArchiving] = useState(false)
+
+  const handleArchiveToggle = async () => {
+    setArchiving(true)
+    try {
+      const newStatus = journey.status === 'archived' ? 'active' : 'archived'
+      await updateJourney(journey.id, { status: newStatus })
+      toast.success(newStatus === 'archived' ? t('journey.settings.archived') : t('journey.settings.reopened'))
+      onSaved()
+    } catch {
+      toast.error(t('journey.settings.saveFailed'))
+    } finally {
+      setArchiving(false)
+    }
+  }
 
   const handleDelete = async () => {
     try {
@@ -2947,10 +3008,18 @@ function JourneySettingsDialog({ journey, onClose, onSaved, onOpenInvite }: {
         <div className="flex flex-wrap items-center gap-2 px-6 py-4 pb-6 md:pb-4 border-t border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800/50">
           <button
             onClick={() => setShowDeleteConfirm(true)}
-            className="flex items-center gap-1.5 text-[12px] font-medium text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg px-2.5 py-2 mr-auto"
+            className="flex items-center gap-1.5 text-[12px] font-medium text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg px-2.5 py-2"
           >
             <Trash2 size={13} />
             {t('journey.settings.delete')}
+          </button>
+          <button
+            onClick={handleArchiveToggle}
+            disabled={archiving}
+            className="flex items-center gap-1.5 text-[12px] font-medium text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-700 rounded-lg px-2.5 py-2 mr-auto disabled:opacity-40"
+            title={t('journey.settings.endDescription')}
+          >
+            {journey.status === 'archived' ? t('journey.settings.reopenJourney') : t('journey.settings.endJourney')}
           </button>
           <button onClick={onClose} className="px-3.5 py-2 rounded-lg border border-zinc-200 dark:border-zinc-600 text-[13px] font-medium text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-700">{t('common.cancel')}</button>
           <button onClick={handleSave} disabled={saving || !title.trim()} className="px-3.5 py-2 rounded-lg bg-zinc-900 dark:bg-white text-white dark:text-zinc-900 text-[13px] font-medium hover:bg-zinc-800 dark:hover:bg-zinc-100 disabled:opacity-40">

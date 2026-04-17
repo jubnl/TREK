@@ -166,16 +166,6 @@ vi.mock('../../src/utils/ssrfGuard', async () => {
       });
     }
 
-    // Original download
-    if (apiName === 'SYNO.Foto.Download') {
-      const imageBytes = Buffer.from('fake-synology-original');
-      return Promise.resolve({
-        ok: true, status: 200,
-        headers: { get: (h: string) => h === 'content-type' ? 'image/jpeg' : null },
-        body: new ReadableStream({ start(c) { c.enqueue(imageBytes); c.close(); } }),
-      });
-    }
-
     return Promise.reject(new Error(`Unexpected safeFetch call to Synology: ${u}, api=${apiName}`));
   }
 
@@ -1177,5 +1167,76 @@ describe('Synology SSRF blocked error handling', () => {
     expect(res.status).toBe(200);
     expect(Array.isArray(res.body.albums)).toBe(true);
     expect(res.body.albums.length).toBeGreaterThan(0);
+  });
+});
+
+// ── Passphrase persistence fixes ─────────────────────────────────────────────
+
+import { getOrCreateTrekPhoto, deleteTrekPhotoIfOrphan } from '../../src/services/memories/photoResolverService';
+import { decrypt_api_key } from '../../src/services/apiKeyCrypto';
+
+describe('trek_photos passphrase healing (SYNO-090)', () => {
+  it('SYNO-090 — getOrCreateTrekPhoto overwrites an existing bad passphrase when a new one is supplied', () => {
+    const { user } = createUser(testDb);
+
+    const wrongPass = 'wrong-passphrase';
+    const correctPass = 'correct-passphrase';
+
+    const id1 = getOrCreateTrekPhoto('synologyphotos', 'asset-heal-test', user.id, wrongPass);
+    const row1 = testDb.prepare('SELECT passphrase FROM trek_photos WHERE id = ?').get(id1) as { passphrase: string };
+    expect(decrypt_api_key(row1.passphrase)).toBe(wrongPass);
+
+    const id2 = getOrCreateTrekPhoto('synologyphotos', 'asset-heal-test', user.id, correctPass);
+    expect(id2).toBe(id1);
+    const row2 = testDb.prepare('SELECT passphrase FROM trek_photos WHERE id = ?').get(id2) as { passphrase: string };
+    expect(decrypt_api_key(row2.passphrase)).toBe(correctPass);
+  });
+});
+
+describe('trek_photos orphan cleanup (SYNO-091)', () => {
+  it('SYNO-091 — deleteTrekPhotoIfOrphan removes the trek_photos row when no trip_photos or journey_photos reference it', () => {
+    const { user } = createUser(testDb);
+    const trip = createTrip(testDb, user.id);
+    testDb.prepare("UPDATE photo_providers SET enabled = 1 WHERE id = 'synologyphotos'").run();
+
+    const trekPhotoId = getOrCreateTrekPhoto('synologyphotos', 'asset-orphan-test', user.id, 'pass-A');
+
+    testDb.prepare(
+      'INSERT OR IGNORE INTO trip_photos (trip_id, user_id, photo_id, shared) VALUES (?, ?, ?, 1)'
+    ).run(trip.id, user.id, trekPhotoId);
+
+    // Still referenced — must not be deleted.
+    deleteTrekPhotoIfOrphan(trekPhotoId);
+    expect(testDb.prepare('SELECT id FROM trek_photos WHERE id = ?').get(trekPhotoId)).toBeDefined();
+
+    // Remove the reference, then orphan-cleanup should delete the trek_photos row.
+    testDb.prepare('DELETE FROM trip_photos WHERE photo_id = ?').run(trekPhotoId);
+    deleteTrekPhotoIfOrphan(trekPhotoId);
+    expect(testDb.prepare('SELECT id FROM trek_photos WHERE id = ?').get(trekPhotoId)).toBeUndefined();
+  });
+
+  it('SYNO-092 — re-adding a previously removed Synology photo stores the new passphrase correctly', () => {
+    const { user } = createUser(testDb);
+    const trip = createTrip(testDb, user.id);
+    testDb.prepare("UPDATE photo_providers SET enabled = 1 WHERE id = 'synologyphotos'").run();
+
+    const firstPass = 'first-passphrase';
+    const secondPass = 'second-passphrase';
+
+    // Add with wrong passphrase, then remove (simulating the bug scenario).
+    const id1 = getOrCreateTrekPhoto('synologyphotos', 'asset-readd-test', user.id, firstPass);
+    testDb.prepare(
+      'INSERT OR IGNORE INTO trip_photos (trip_id, user_id, photo_id, shared) VALUES (?, ?, ?, 1)'
+    ).run(trip.id, user.id, id1);
+    testDb.prepare('DELETE FROM trip_photos WHERE photo_id = ?').run(id1);
+    deleteTrekPhotoIfOrphan(id1);
+
+    // trek_photos row should be gone.
+    expect(testDb.prepare('SELECT id FROM trek_photos WHERE id = ?').get(id1)).toBeUndefined();
+
+    // Re-add with the correct passphrase.
+    const id2 = getOrCreateTrekPhoto('synologyphotos', 'asset-readd-test', user.id, secondPass);
+    const row = testDb.prepare('SELECT passphrase FROM trek_photos WHERE id = ?').get(id2) as { passphrase: string };
+    expect(decrypt_api_key(row.passphrase)).toBe(secondPass);
   });
 });

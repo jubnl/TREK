@@ -51,7 +51,7 @@ export default function Modal({
   return (
     <div
       className="fixed inset-0 z-[200] flex items-start sm:items-center justify-center px-4 modal-backdrop"
-      style={{ backgroundColor: 'rgba(15, 23, 42, 0.5)', paddingTop: 70, paddingBottom: 20, overflow: 'hidden' }}
+      style={{ backgroundColor: 'rgba(15, 23, 42, 0.5)', paddingTop: 70, paddingBottom: 'calc(20px + var(--bottom-nav-h))', overflow: 'hidden' }}
       onMouseDown={e => { mouseDownTarget.current = e.target }}
       onClick={e => {
         if (e.target === e.currentTarget && mouseDownTarget.current === e.currentTarget) onClose()

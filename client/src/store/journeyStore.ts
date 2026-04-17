@@ -8,7 +8,7 @@ export interface Journey {
   subtitle?: string | null
   cover_gradient?: string | null
   cover_image?: string | null
-  status: 'draft' | 'active' | 'completed'
+  status: 'draft' | 'active' | 'completed' | 'archived'
   created_at: number
   updated_at: number
 }
@@ -81,7 +81,7 @@ export interface JourneyDetail extends Journey {
   entries: JourneyEntry[]
   trips: JourneyTrip[]
   contributors: JourneyContributor[]
-  stats: { entries: number; photos: number; cities: number }
+  stats: { entries: number; photos: number; places: number }
   hide_skeletons?: boolean
 }
 

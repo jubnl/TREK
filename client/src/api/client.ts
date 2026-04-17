@@ -272,6 +272,12 @@ export const adminApi = {
   checkVersion: () => apiClient.get('/admin/version-check').then(r => r.data),
   getBagTracking: () => apiClient.get('/admin/bag-tracking').then(r => r.data),
   updateBagTracking: (enabled: boolean) => apiClient.put('/admin/bag-tracking', { enabled }).then(r => r.data),
+  getPlacesPhotos: () => apiClient.get('/admin/places-photos').then(r => r.data),
+  updatePlacesPhotos: (enabled: boolean) => apiClient.put('/admin/places-photos', { enabled }).then(r => r.data),
+  getPlacesAutocomplete: () => apiClient.get('/admin/places-autocomplete').then(r => r.data),
+  updatePlacesAutocomplete: (enabled: boolean) => apiClient.put('/admin/places-autocomplete', { enabled }).then(r => r.data),
+  getPlacesDetails: () => apiClient.get('/admin/places-details').then(r => r.data),
+  updatePlacesDetails: (enabled: boolean) => apiClient.put('/admin/places-details', { enabled }).then(r => r.data),
   getCollabFeatures: () => apiClient.get('/admin/collab-features').then(r => r.data),
   updateCollabFeatures: (features: Record<string, boolean>) => apiClient.put('/admin/collab-features', features).then(r => r.data),
   packingTemplates: () => apiClient.get('/admin/packing-templates').then(r => r.data),
@@ -331,8 +337,8 @@ export const journeyApi = {
 
   // Photos
   uploadPhotos: (entryId: number, formData: FormData) => apiClient.post(`/journeys/entries/${entryId}/photos`, formData, { headers: { 'Content-Type': undefined as any } }).then(r => r.data),
-  addProviderPhoto: (entryId: number, provider: string, assetId: string, caption?: string) => apiClient.post(`/journeys/entries/${entryId}/provider-photos`, { provider, asset_id: assetId, caption }).then(r => r.data),
-  addProviderPhotos: (entryId: number, provider: string, assetIds: string[], caption?: string) => apiClient.post(`/journeys/entries/${entryId}/provider-photos`, { provider, asset_ids: assetIds, caption }).then(r => r.data),
+  addProviderPhoto: (entryId: number, provider: string, assetId: string, caption?: string, passphrase?: string) => apiClient.post(`/journeys/entries/${entryId}/provider-photos`, { provider, asset_id: assetId, caption, ...(passphrase ? { passphrase } : {}) }).then(r => r.data),
+  addProviderPhotos: (entryId: number, provider: string, assetIds: string[], caption?: string, passphrase?: string) => apiClient.post(`/journeys/entries/${entryId}/provider-photos`, { provider, asset_ids: assetIds, caption, ...(passphrase ? { passphrase } : {}) }).then(r => r.data),
   linkPhoto: (entryId: number, photoId: number) => apiClient.post(`/journeys/entries/${entryId}/link-photo`, { photo_id: photoId }).then(r => r.data),
   updatePhoto: (photoId: number, data: Record<string, unknown>) => apiClient.patch(`/journeys/photos/${photoId}`, data).then(r => r.data),
   deletePhoto: (photoId: number) => apiClient.delete(`/journeys/photos/${photoId}`).then(r => r.data),

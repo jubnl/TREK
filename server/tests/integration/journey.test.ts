@@ -936,6 +936,50 @@ describe('Share link update', () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+// Provider photos passphrase (JOURNEY-INT-046, 047)
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('Provider photos — passphrase persistence', () => {
+  it('JOURNEY-INT-046 — single mode with passphrase persists encrypted passphrase on trek_photos', async () => {
+    const { user } = createUser(testDb);
+    const journey = createJourney(testDb, user.id);
+    const entry = createJourneyEntry(testDb, journey.id, user.id, { entry_date: '2026-04-01' });
+
+    const res = await request(app)
+      .post(`/api/journeys/entries/${entry.id}/provider-photos`)
+      .set('Cookie', authCookie(user.id))
+      .send({ provider: 'synologyphotos', asset_id: 'shared-asset-1', passphrase: 'pp-test' });
+
+    expect(res.status).toBe(201);
+
+    const row = testDb.prepare('SELECT passphrase FROM trek_photos WHERE provider = ? AND asset_id = ? AND owner_id = ?')
+      .get('synologyphotos', 'shared-asset-1', user.id) as { passphrase: string | null } | undefined;
+    expect(row?.passphrase).not.toBeNull();
+    expect(typeof row?.passphrase).toBe('string');
+  });
+
+  it('JOURNEY-INT-047 — batch mode with passphrase persists encrypted passphrase on all trek_photos rows', async () => {
+    const { user } = createUser(testDb);
+    const journey = createJourney(testDb, user.id);
+    const entry = createJourneyEntry(testDb, journey.id, user.id, { entry_date: '2026-04-02' });
+
+    const res = await request(app)
+      .post(`/api/journeys/entries/${entry.id}/provider-photos`)
+      .set('Cookie', authCookie(user.id))
+      .send({ provider: 'synologyphotos', asset_ids: ['batch-asset-1', 'batch-asset-2'], passphrase: 'pp-batch' });
+
+    expect(res.status).toBe(201);
+    expect(res.body.added).toBe(2);
+
+    for (const assetId of ['batch-asset-1', 'batch-asset-2']) {
+      const row = testDb.prepare('SELECT passphrase FROM trek_photos WHERE provider = ? AND asset_id = ? AND owner_id = ?')
+        .get('synologyphotos', assetId, user.id) as { passphrase: string | null } | undefined;
+      expect(row?.passphrase).not.toBeNull();
+    }
+  });
+});
+
 // Photo upload without files (JOURNEY-INT-045)
 // ─────────────────────────────────────────────────────────────────────────────
 

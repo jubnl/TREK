@@ -308,7 +308,7 @@ export async function downloadJourneyBookPDF(journey: JourneyDetail) {
 
   const iframe = document.createElement('iframe')
   iframe.style.cssText = 'flex:1;width:100%;border:none;'
-  iframe.sandbox = 'allow-same-origin allow-modals'
+  iframe.sandbox = 'allow-same-origin allow-modals allow-scripts'
   iframe.srcdoc = html
 
   card.appendChild(header)

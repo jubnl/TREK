@@ -132,7 +132,7 @@ export function getPublicJourney(token: string) {
   const stats = {
     entries: entries.length,
     photos: photos.length,
-    cities: new Set(entries.filter(e => e.location_name).map(e => e.location_name)).size,
+    places: new Set(entries.filter(e => e.location_name).map(e => e.location_name)).size,
   };
 
   return {

@@ -604,6 +604,47 @@ export async function getSynologyAssetInfo(userId: number, photoId: string, targ
     return success(normalized);
 }
 
+export async function fetchSynologyThumbnailBytes(
+    userId: number,
+    targetUserId: number,
+    photoId: string,
+    passphrase?: string,
+): Promise<{ bytes: Buffer; contentType: string } | { error: string; status: number }> {
+    const parsedId = _splitPackedSynologyId(photoId);
+    if (!parsedId) return { error: 'Invalid photo ID format', status: 400 };
+
+    const synology_credentials = _getSynologyCredentials(targetUserId);
+    if (!synology_credentials.success) return { error: 'Credentials error', status: 500 };
+
+    const sid = await _getSynologySession(targetUserId);
+    if (!sid.success) return { error: 'Session error', status: 500 };
+    if (!sid.data) return { error: 'Session ID missing', status: 500 };
+
+    const params = new URLSearchParams({
+        api: 'SYNO.Foto.Thumbnail',
+        method: 'get',
+        version: '2',
+        mode: 'download',
+        id: parsedId.id,
+        type: 'unit',
+        size: 'sm',
+        cache_key: parsedId.cacheKey,
+        _sid: sid.data,
+    });
+    if (passphrase) params.append('passphrase', passphrase);
+
+    const url = _buildSynologyEndpoint(synology_credentials.data.synology_url, params.toString());
+    try {
+        const resp = await safeFetch(url);
+        if (!resp.ok) return { error: 'Upstream error', status: resp.status };
+        const contentType = resp.headers.get('content-type') || 'image/jpeg';
+        const bytes = Buffer.from(await resp.arrayBuffer());
+        return { bytes, contentType };
+    } catch {
+        return { error: 'Proxy error', status: 502 };
+    }
+}
+
 export async function streamSynologyAsset(
     response: Response,
     userId: number,
@@ -637,27 +678,20 @@ export async function streamSynologyAsset(
 
     
     //size: 'sm' 240px| 'm' 320px| 'xl' 1280px| 'preview' ?
-    const resolvedSize = size || 'sm';
-    const params = kind === 'thumbnail'
-        ? new URLSearchParams({
-            api: 'SYNO.Foto.Thumbnail',
-            method: 'get',
-            version: '2',
-            mode: 'download',
-            id: parsedId.id,
-            type: 'unit',
-            size: resolvedSize,
-            cache_key: parsedId.cacheKey,
-            _sid: sid.data,
-        })
-        : new URLSearchParams({
-            api: 'SYNO.Foto.Download',
-            method: 'download',
-            version: '2',
-            cache_key: parsedId.cacheKey,
-            unit_id: `[${parsedId.id}]`,
-            _sid: sid.data,
-        });
+    // Use Thumbnail API for both thumbnail and original — avoids serving raw HEIC files
+    // (original uses xl size to get a full-resolution JPEG-compatible render)
+    const resolvedSize = kind === 'original' ? 'xl' : (size || 'sm');
+    const params = new URLSearchParams({
+        api: 'SYNO.Foto.Thumbnail',
+        method: 'get',
+        version: '2',
+        mode: 'download',
+        id: parsedId.id,
+        type: 'unit',
+        size: resolvedSize,
+        cache_key: parsedId.cacheKey,
+        _sid: sid.data,
+    });
     if (passphrase) params.append('passphrase', passphrase);
 
     const url = _buildSynologyEndpoint(synology_credentials.data.synology_url, params.toString());

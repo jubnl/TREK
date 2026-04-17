@@ -69,6 +69,7 @@ export default function PhotoLightbox({ photos, startIndex = 0, onClose }: Props
         position: 'fixed', inset: 0, zIndex: 500,
         background: 'rgba(0,0,0,0.92)', backdropFilter: 'blur(20px)',
         display: 'flex', flexDirection: 'column',
+        paddingBottom: 'var(--bottom-nav-h)',
       }}
       onTouchStart={onTouchStart}
       onTouchEnd={onTouchEnd}

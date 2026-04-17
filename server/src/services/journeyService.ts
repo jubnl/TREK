@@ -1,7 +1,7 @@
 import { db } from '../db/database';
 import { broadcastToUser } from '../websocket';
 import type { Journey, JourneyEntry, JourneyPhoto, JourneyContributor } from '../types';
-import { getOrCreateTrekPhoto, getOrCreateLocalTrekPhoto, setTrekPhotoProvider } from './memories/photoResolverService';
+import { getOrCreateTrekPhoto, getOrCreateLocalTrekPhoto, setTrekPhotoProvider, deleteTrekPhotoIfOrphan } from './memories/photoResolverService';
 
 function ts(): number {
   return Date.now();
@@ -59,12 +59,14 @@ export function listJourneys(userId: number) {
     SELECT DISTINCT j.*,
       (SELECT COUNT(*) FROM journey_entries je WHERE je.journey_id = j.id AND je.type != 'skeleton') as entry_count,
       (SELECT COUNT(*) FROM journey_photos jp JOIN journey_entries je2 ON jp.entry_id = je2.id WHERE je2.journey_id = j.id) as photo_count,
-      (SELECT COUNT(DISTINCT je3.location_name) FROM journey_entries je3 WHERE je3.journey_id = j.id AND je3.location_name IS NOT NULL AND je3.location_name != '') as city_count
+      (SELECT COUNT(DISTINCT je3.location_name) FROM journey_entries je3 WHERE je3.journey_id = j.id AND je3.location_name IS NOT NULL AND je3.location_name != '') as place_count,
+      (SELECT MIN(t.start_date) FROM journey_trips jt JOIN trips t ON jt.trip_id = t.id WHERE jt.journey_id = j.id) as trip_date_min,
+      (SELECT MAX(t.end_date) FROM journey_trips jt JOIN trips t ON jt.trip_id = t.id WHERE jt.journey_id = j.id) as trip_date_max
     FROM journeys j
     LEFT JOIN journey_contributors jc ON j.id = jc.journey_id AND jc.user_id = ?
     WHERE j.user_id = ? OR jc.user_id = ?
     ORDER BY j.updated_at DESC
-  `).all(userId, userId, userId) as (Journey & { entry_count: number; photo_count: number; city_count: number })[];
+  `).all(userId, userId, userId) as (Journey & { entry_count: number; photo_count: number; place_count: number; trip_date_min: string | null; trip_date_max: string | null })[];
 }
 
 export function createJourney(userId: number, data: {
@@ -159,7 +161,7 @@ export function getJourneyFull(journeyId: number, userId: number) {
   // stats
   const entryCount = entries.filter(e => e.type === 'entry').length;
   const photoCount = photos.length;
-  const cities = [...new Set(entries.map(e => e.location_name).filter(Boolean))];
+  const places = [...new Set(entries.map(e => e.location_name).filter(Boolean))];
 
   const userPrefs = db.prepare(
     'SELECT hide_skeletons FROM journey_contributors WHERE journey_id = ? AND user_id = ?'
@@ -170,7 +172,7 @@ export function getJourneyFull(journeyId: number, userId: number) {
     entries: enrichedEntries,
     trips,
     contributors,
-    stats: { entries: entryCount, photos: photoCount, cities: cities.length },
+    stats: { entries: entryCount, photos: photoCount, places: places.length },
     hide_skeletons: !!(userPrefs?.hide_skeletons),
   };
 }
@@ -184,11 +186,13 @@ export function updateJourney(journeyId: number, userId: number, data: Partial<{
 }>): Journey | null {
   if (!canEdit(journeyId, userId)) return null;
 
+  const ALLOWED_STATUSES = ['draft', 'active', 'completed', 'archived'];
   const allowed = ['title', 'subtitle', 'cover_gradient', 'cover_image', 'status'];
   const fields: string[] = [];
   const values: unknown[] = [];
   for (const [key, val] of Object.entries(data)) {
     if (val !== undefined && allowed.includes(key)) {
+      if (key === 'status' && !ALLOWED_STATUSES.includes(val as string)) continue;
       fields.push(`${key} = ?`);
       values.push(val);
     }
@@ -628,12 +632,12 @@ export function addPhoto(entryId: number, userId: number, filePath: string, thum
   return db.prepare(`SELECT ${JP_SELECT} FROM ${JP_JOIN} WHERE jp.id = ?`).get(Number(res.lastInsertRowid)) as JourneyPhoto;
 }
 
-export function addProviderPhoto(entryId: number, userId: number, provider: string, assetId: string, caption?: string): JourneyPhoto | null {
+export function addProviderPhoto(entryId: number, userId: number, provider: string, assetId: string, caption?: string, passphrase?: string): JourneyPhoto | null {
   const entry = db.prepare('SELECT * FROM journey_entries WHERE id = ?').get(entryId) as JourneyEntry | undefined;
   if (!entry) return null;
   if (!canEdit(entry.journey_id, userId)) return null;
 
-  const trekPhotoId = getOrCreateTrekPhoto(provider, assetId, userId);
+  const trekPhotoId = getOrCreateTrekPhoto(provider, assetId, userId, passphrase);
 
   // skip if already added
   const exists = db.prepare('SELECT 1 FROM journey_photos WHERE entry_id = ? AND photo_id = ?').get(entryId, trekPhotoId);
@@ -714,6 +718,7 @@ export function deletePhoto(photoId: number, userId: number): (JourneyPhoto & { 
   if (!canEdit(photo.journey_id, userId)) return null;
 
   db.prepare('DELETE FROM journey_photos WHERE id = ?').run(photoId);
+  deleteTrekPhotoIfOrphan(photo.photo_id);
 
   // clean up empty Gallery entries left behind
   const remaining = db.prepare('SELECT 1 FROM journey_photos WHERE entry_id = ?').get(photo.entry_id);

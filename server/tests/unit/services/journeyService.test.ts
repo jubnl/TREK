@@ -202,7 +202,7 @@ describe('listJourneys', () => {
     expect(result).toHaveLength(1);
     expect(result[0].title).toBe('Road Trip');
     expect(result[0].entry_count).toBe(2);
-    expect(result[0].city_count).toBe(2);
+    expect(result[0].place_count).toBe(2);
   });
 
   it('JOURNEY-SVC-012: includes journeys where user is contributor', () => {
@@ -225,6 +225,21 @@ describe('listJourneys', () => {
     const result = listJourneys(other.id);
 
     expect(result).toHaveLength(0);
+  });
+
+  it('JOURNEY-SVC-013b: returns trip_date_min/max aggregated from linked trips', () => {
+    const { user } = createUser(testDb);
+    const journey = createJourney(testDb, user.id, { title: 'Multi Trip' });
+    const trip1 = createTrip(testDb, user.id, { title: 'Trip A', start_date: '2025-06-01', end_date: '2025-06-10' });
+    const trip2 = createTrip(testDb, user.id, { title: 'Trip B', start_date: '2026-03-15', end_date: '2026-03-20' });
+    addTripToJourney(journey.id, trip1.id, user.id);
+    addTripToJourney(journey.id, trip2.id, user.id);
+
+    const result = listJourneys(user.id);
+
+    expect(result).toHaveLength(1);
+    expect(result[0].trip_date_min).toBe('2025-06-01');
+    expect(result[0].trip_date_max).toBe('2026-03-20');
   });
 });
 
@@ -334,6 +349,26 @@ describe('updateJourney', () => {
 
     expect(result).not.toBeNull();
     expect(result!.title).toBe('Same');
+  });
+
+  it('JOURNEY-SVC-021b: accepts archived status', () => {
+    const { user } = createUser(testDb);
+    const journey = createJourney(testDb, user.id, { title: 'To Archive' });
+
+    const result = updateJourney(journey.id, user.id, { status: 'archived' });
+
+    expect(result).not.toBeNull();
+    expect(result!.status).toBe('archived');
+  });
+
+  it('JOURNEY-SVC-021c: ignores invalid status value', () => {
+    const { user } = createUser(testDb);
+    const journey = createJourney(testDb, user.id, { title: 'Stay Active' });
+
+    const result = updateJourney(journey.id, user.id, { status: 'bogus' });
+
+    expect(result).not.toBeNull();
+    expect(result!.status).toBe('active');
   });
 });
 
@@ -1410,5 +1445,26 @@ describe('Edge cases', () => {
     expect(filledRow).toBeDefined();
     expect(filledRow.source_trip_id).toBeNull();
     expect(filledRow.source_place_id).toBeNull();
+  });
+});
+
+// -- Passphrase on addProviderPhoto -------------------------------------------
+
+describe('addProviderPhoto — passphrase', () => {
+  it('JOURNEY-SVC-088: addProviderPhoto with passphrase stores encrypted value on trek_photos', () => {
+    const { user } = createUser(testDb);
+    const journey = createJourney(testDb, user.id);
+    const entry = createJourneyEntry(testDb, journey.id, user.id, { entry_date: '2026-03-15' });
+
+    const photo = addProviderPhoto(entry.id, user.id, 'synologyphotos', 'pp-asset-1', undefined, 'secret-pp');
+
+    expect(photo).not.toBeNull();
+
+    const row = testDb.prepare('SELECT passphrase FROM trek_photos WHERE provider = ? AND asset_id = ? AND owner_id = ?')
+      .get('synologyphotos', 'pp-asset-1', user.id) as { passphrase: string | null } | undefined;
+    expect(row?.passphrase).not.toBeNull();
+    expect(typeof row?.passphrase).toBe('string');
+    // stored value must be encrypted (not plaintext)
+    expect(row?.passphrase).not.toBe('secret-pp');
   });
 });
