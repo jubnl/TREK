@@ -12,6 +12,8 @@ body:
           required: true
         - label: I am running the latest available version of TREK
           required: true
+        - label: I have read the [Troubleshooting guide](https://github.com/mauriceboe/TREK/wiki/Troubleshooting) and my issue is not covered there
+          required: true
 
   - type: input
     id: version
