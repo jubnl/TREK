@@ -40,11 +40,11 @@ function photoUrl(p: PublicPhoto, shareToken: string, kind: 'thumbnail' | 'origi
   return `/api/public/journey/${shareToken}/photos/${p.photo_id}/${kind}`
 }
 
-function formatDate(d: string): { weekday: string; month: string; day: number } {
+function formatDate(d: string, locale?: string): { weekday: string; month: string; day: number } {
   const date = new Date(d + 'T00:00:00')
   return {
-    weekday: date.toLocaleDateString('en', { weekday: 'long' }),
-    month: date.toLocaleDateString('en', { month: 'long' }),
+    weekday: date.toLocaleDateString(locale || 'en', { weekday: 'long' }),
+    month: date.toLocaleDateString(locale || 'en', { month: 'long' }),
     day: date.getDate(),
   }
 }
@@ -233,7 +233,7 @@ export default function JourneyPublicPage() {
           <div className="flex flex-col gap-6">
             {sortedDates.map(date => {
               const dayEntries = groupedEntries.get(date)!
-              const fd = formatDate(date)
+              const fd = formatDate(date, locale)
               return (
                 <div key={date}>
                   <div className="flex items-center gap-3 mb-4">

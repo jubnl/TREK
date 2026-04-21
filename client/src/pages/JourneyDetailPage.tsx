@@ -67,11 +67,13 @@ function groupByDate(entries: JourneyEntry[]): Map<string, JourneyEntry[]> {
   return groups
 }
 
-function formatDate(d: string): { weekday: string; month: string; day: number } {
+function formatDate(d: string, locale?: string): { weekday: string; month: string; day: number } {
   const date = new Date(d + 'T00:00:00')
+  // Pass the app's selected locale so weekday/month follow the UI language
+  // instead of the browser's navigator.language.
   return {
-    weekday: date.toLocaleDateString(undefined, { weekday: 'long' }),
-    month: date.toLocaleDateString(undefined, { month: 'long' }),
+    weekday: date.toLocaleDateString(locale, { weekday: 'long' }),
+    month: date.toLocaleDateString(locale, { month: 'long' }),
     day: date.getDate(),
   }
 }
@@ -84,7 +86,7 @@ export default function JourneyDetailPage() {
   const { id } = useParams()
   const navigate = useNavigate()
   const toast = useToast()
-  const { t } = useTranslation()
+  const { t, locale } = useTranslation()
   const { current, loading, notFound, loadJourney, updateEntry, deleteEntry, reorderEntries, uploadPhotos, deletePhoto } = useJourneyStore()
   const mapRef = useRef<JourneyMapHandle>(null)
   const fullMapRef = useRef<JourneyMapHandle>(null)
@@ -575,7 +577,7 @@ export default function JourneyDetailPage() {
 
                   {sortedDates.map((date, dayIdx) => {
                     const entries = dayGroups.get(date)!
-                    const fd = formatDate(date)
+                    const fd = formatDate(date, locale)
                     const locations = [...new Set(entries.map(e => e.location_name).filter(Boolean))]
 
                     return (
@@ -816,7 +818,7 @@ function MapView({ entries, mapEntries, sortedDates, activeLocationId, fullMapRe
   fullMapRef: React.RefObject<JourneyMapHandle | null>
   onLocationClick: (id: string) => void
 }) {
-  const { t } = useTranslation()
+  const { t, locale } = useTranslation()
   // group map entries by date
   const byDate = new Map<string, { entry: JourneyEntry; globalIdx: number }[]>()
   mapEntries.forEach((e, i) => {
@@ -872,7 +874,7 @@ function MapView({ entries, mapEntries, sortedDates, activeLocationId, fullMapRe
         <div className="px-5 pb-5">
           {dates.map((date, dayIdx) => {
             const items = byDate.get(date)!
-            const fd = formatDate(date)
+            const fd = formatDate(date, locale)
 
             return (
               <div key={date}>
